@@ -22,6 +22,7 @@ import (
 
 	"raccoonci/internal/actions"
 	"raccoonci/internal/catalog"
+	"raccoonci/internal/docker"
 	"raccoonci/internal/expr"
 	"raccoonci/internal/runnerimages"
 	"raccoonci/internal/value"
@@ -83,6 +84,13 @@ type Config struct {
 	// ServiceEnv is added to every step's environment: the URLs and tokens of
 	// the runtime services (artifacts, cache, OIDC).
 	ServiceEnv map[string]string
+	// Docker runs container jobs and service containers; nil means the docker
+	// found on PATH, looked for only when a job needs it.
+	Docker *docker.Client
+	// Mounts are host directories (the Node.js runtimes, the downloaded
+	// actions) that steps in a job container need to reach at the same path.
+	// They are mounted read-only.
+	Mounts     []string
 	RunnerName string
 	OnEvent    func(Event)
 }
@@ -134,6 +142,7 @@ const (
 type jobRun struct {
 	cfg       Config
 	job       *Job
+	workDir   string
 	workspace string
 	temp      string
 	toolCache string
@@ -158,6 +167,19 @@ type jobRun struct {
 	fileSeq     int
 	remoteActs  map[string]string // uses -> downloaded repository directory
 	preStates   map[*workflow.Step]map[string]string
+
+	// Containers (see containers.go).
+	dkr          *docker.Client
+	rootless     bool
+	network      string
+	netMade      bool
+	created      []string // containers to remove, job container included
+	jobCID       string   // the job container, if the job has one
+	cBase        []string // its environment: the image's, plus the spec's
+	ctxContainer value.Object
+	ctxServices  value.Object
+	lookups      map[string]string
+	nodeChecks   map[string]error // node binary -> why it cannot run in the job container, or nil
 }
 
 // Run runs the job. Step failures are reported in the Result; the error is
@@ -171,6 +193,7 @@ func Run(ctx context.Context, cfg Config, job *Job) (*Result, error) {
 		return nil, err
 	}
 	defer r.killLeftovers()
+	defer r.stopContainers() // runs first: removing the containers kills what is in them
 	defer func() {
 		if r.graceCancel != nil {
 			r.graceCancel()
@@ -191,6 +214,7 @@ func (r *jobRun) setupDirs() error {
 	if err != nil {
 		return err
 	}
+	r.workDir = workDir
 	r.workspace = filepath.Join(workDir, name, name) // like the runner's _work/repo/repo
 	r.temp = filepath.Join(workDir, "_temp")
 	r.toolCache = r.cfg.ToolCache
@@ -229,8 +253,12 @@ func (r *jobRun) run(ctx context.Context) *Result {
 	if err == nil {
 		err = r.fetchActions(jobCtx)
 	}
+	if err == nil {
+		err = r.startContainers(jobCtx)
+	}
 	if err != nil {
 		r.emit(Event{Kind: Error, Text: err.Error()})
+		r.stopContainers()
 		res.Conclusion = Failure
 		r.emit(Event{Kind: JobFinished, Conclusion: res.Conclusion})
 		return res
@@ -244,6 +272,7 @@ func (r *jobRun) run(ctx context.Context) *Result {
 	}
 	r.checkCancelled()
 	r.runPosts(jobCtx)
+	r.stopContainers()
 
 	res.Outputs = r.jobOutputs(top)
 	r.mu.Lock()
@@ -268,9 +297,6 @@ func (r *jobRun) run(ctx context.Context) *Result {
 // payload: the "Set up job" step on GitHub, together with fetchActions.
 func (r *jobRun) prepare() error {
 	j := r.job.Job
-	if j.Container != nil || j.Services != nil {
-		return errors.New("container jobs and service containers aren't supported yet")
-	}
 	for _, s := range r.job.Secrets {
 		r.masker.add(s)
 	}

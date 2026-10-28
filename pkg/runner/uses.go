@@ -290,6 +290,10 @@ func (r *jobRun) runNode(ctx context.Context, st *stepState, a *actions.Action, 
 		r.emitStep(st, Error, fmt.Sprintf("%s runtime: %v", a.Runs.Using, err), nil)
 		return Failure
 	}
+	if err := r.checkNodeRuns(ctx, node); err != nil {
+		r.emitStep(st, Error, err.Error(), nil)
+		return Failure
+	}
 	var extra [][2]string
 	for _, f := range inputs {
 		extra = append(extra, [2]string{"INPUT_" + strings.ToUpper(strings.ReplaceAll(f.Key, " ", "_")), expr.ToString(f.Value)})

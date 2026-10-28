@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"raccoonci/internal/docker"
 	"raccoonci/internal/value"
 	"raccoonci/internal/workflow"
 )
@@ -34,6 +35,24 @@ func (r *recorder) output() string {
 	for _, e := range r.events {
 		if e.Kind == Output {
 			lines = append(lines, e.Text)
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// dump lists every event, errors and warnings included, for failure messages.
+func (r *recorder) dump() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var lines []string
+	for _, e := range r.events {
+		switch e.Kind {
+		case Output:
+			lines = append(lines, e.Text)
+		case Error:
+			lines = append(lines, "ERROR: "+e.Text)
+		case Warning:
+			lines = append(lines, "WARNING: "+e.Text)
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -452,17 +471,30 @@ jobs:
 	}
 }
 
-func TestUnsupportedContainerJobFailsClearly(t *testing.T) {
-	res, rec := run(t, testJob{yaml: `
+// A job that needs a container cannot run without docker: it fails before
+// any step, and says why, instead of running its steps on the host.
+func TestContainerJobWithoutDockerFailsBeforeSteps(t *testing.T) {
+	for name, yaml := range map[string]string{
+		"container": "container: node:22",
+		"services":  "services:\n      db:\n        image: redis",
+	} {
+		res, rec := run(t, testJob{
+			yaml: `
 on: push
 jobs:
   j:
     runs-on: ubuntu-latest
-    container: node:22
+    ` + yaml + `
     steps:
-      - run: echo hi
-`})
-	if res.Conclusion != Failure || !rec.has(Error, "container jobs") {
-		t.Errorf("conclusion %s", res.Conclusion)
+      - run: echo ran-on-the-host
+`,
+			configFn: func(c *Config) { c.Docker = &docker.Client{Bin: "/nonexistent/docker"} },
+		})
+		if res.Conclusion != Failure || !rec.has(Error, "docker") {
+			t.Errorf("%s: conclusion %s, output %s", name, res.Conclusion, rec.output())
+		}
+		if rec.has(Output, "ran-on-the-host") {
+			t.Errorf("%s: the steps ran on the host", name)
+		}
 	}
 }

@@ -75,26 +75,46 @@ func TestMasker(t *testing.T) {
 
 func TestShellCommand(t *testing.T) {
 	path := os.Getenv("PATH")
-	argv, _, err := shellCommand("bash", "echo", "/tmp/s.sh", path)
+	argv, _, err := shellCommand(lookPath, "bash", "echo", "/tmp/s.sh", path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.Join(argv[1:], " "); got != "--noprofile --norc -eo pipefail /tmp/s.sh" {
 		t.Errorf("bash: %s", got)
 	}
-	argv, _, err = shellCommand("", "echo", "/tmp/s.sh", path)
+	argv, _, err = shellCommand(lookPath, "", "echo", "/tmp/s.sh", path)
 	if err != nil || strings.Join(argv[1:], " ") != "-e /tmp/s.sh" {
 		t.Errorf("default shell: %v %v", argv, err)
 	}
-	argv, _, err = shellCommand(`bash -c "source {0}"`, "echo", "/tmp/s", path)
+	argv, _, err = shellCommand(lookPath, `bash -c "source {0}"`, "echo", "/tmp/s", path)
 	if err != nil || !reflect.DeepEqual(argv[1:], []string{"-c", "source /tmp/s"}) {
 		t.Errorf("custom shell: %q %v", argv, err)
 	}
-	if _, _, err := shellCommand("cmd", "", "", path); err == nil || !strings.Contains(err.Error(), "Windows") {
+	if _, _, err := shellCommand(lookPath, "cmd", "", "", path); err == nil || !strings.Contains(err.Error(), "Windows") {
 		t.Errorf("cmd: %v", err)
 	}
-	if _, _, err := shellCommand("perl -w", "", "", path); err == nil || !strings.Contains(err.Error(), "{0}") {
+	if _, _, err := shellCommand(lookPath, "perl -w", "", "", path); err == nil || !strings.Contains(err.Error(), "{0}") {
 		t.Errorf("custom shell without {0}: %v", err)
+	}
+
+	// The lookup is injected so a container job can search its image: with
+	// no bash there, the default shell is sh, and python falls back to python3.
+	inImage := func(name, _ string) (string, error) {
+		if name == "sh" || name == "python3" {
+			return "/bin/" + name, nil
+		}
+		return "", os.ErrNotExist
+	}
+	argv, _, err = shellCommand(inImage, "", "echo", "/tmp/s.sh", "/bin")
+	if err != nil || !reflect.DeepEqual(argv, []string{"/bin/sh", "-e", "/tmp/s.sh"}) {
+		t.Errorf("default shell without bash: %q %v", argv, err)
+	}
+	argv, _, err = shellCommand(inImage, "python", "print()", "/tmp/s.py", "/bin")
+	if err != nil || argv[0] != "/bin/python3" {
+		t.Errorf("python: %q %v", argv, err)
+	}
+	if _, _, err := shellCommand(inImage, "bash", "echo", "/tmp/s.sh", "/bin"); err == nil {
+		t.Error("bash found in an image without it")
 	}
 	if got := scriptExt("pwsh"); got != ".ps1" {
 		t.Errorf("pwsh ext %q", got)

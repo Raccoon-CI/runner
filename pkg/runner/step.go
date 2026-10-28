@@ -142,6 +142,7 @@ func (r *jobRun) exprCtx(sc *scope, env value.Object, status *expr.Status, githu
 	case r.failed:
 		jobStatus = Failure
 	}
+	ctxContainer, ctxServices := r.ctxContainer, r.ctxServices
 	r.mu.Unlock()
 	orEmpty := func(o value.Object) value.Object {
 		if o == nil {
@@ -154,8 +155,8 @@ func (r *jobRun) exprCtx(sc *scope, env value.Object, status *expr.Status, githu
 		"env":    orEmpty(env),
 		"job": value.Object{
 			{Key: "status", Value: string(jobStatus)},
-			{Key: "container", Value: value.Object{}},
-			{Key: "services", Value: value.Object{}},
+			{Key: "container", Value: orEmpty(ctxContainer)},
+			{Key: "services", Value: orEmpty(ctxServices)},
 		},
 		"runner":   orEmpty(r.runner),
 		"matrix":   orEmpty(r.job.Matrix),
@@ -351,7 +352,7 @@ func (r *jobRun) runScript(ctx context.Context, sc *scope, s *workflow.Step, st 
 
 	procEnv := r.processEnv(env, st, nil)
 	scriptPath := filepath.Join(r.temp, fmt.Sprintf("script_%d%s", st.seq, scriptExt(shell)))
-	argv, body, err := shellCommand(shell, script, scriptPath, envValue(procEnv, "PATH"))
+	argv, body, err := shellCommand(r.lookup, shell, script, scriptPath, envValue(procEnv, "PATH"))
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -398,9 +399,14 @@ var githubEnv = []string{
 // processEnv is a step's process environment. User env can't override the
 // GITHUB_* and RUNNER_* variables, as on GitHub (CI it can).
 func (r *jobRun) processEnv(env value.Object, st *stepState, extra [][2]string) []string {
-	base := r.cfg.BaseEnv
+	r.mu.Lock()
+	base := slices.Clone(r.cBase) // a container job starts from its image's environment
+	r.mu.Unlock()
 	if base == nil {
-		base = os.Environ()
+		base = r.cfg.BaseEnv
+		if base == nil {
+			base = os.Environ()
+		}
 	}
 	var keys []string
 	m := map[string]string{}

@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"raccoonci/internal/docker"
 	"raccoonci/internal/expr"
 )
 
@@ -30,8 +31,21 @@ const (
 // exec runs a step's process in its own process group and returns the
 // step's outcome. Cancelling ctx interrupts the whole group.
 func (r *jobRun) exec(ctx context.Context, st *stepState, argv []string, dir string, env []string) Conclusion {
-	cmd := exec.Command(argv[0], argv[1:]...)
-	cmd.Dir, cmd.Env = dir, env
+	var cmd *exec.Cmd
+	if cid := r.containerID(); cid != "" {
+		// Inside the job container. Cancelling kills the docker client; the
+		// process in the container goes with the container at job end.
+		var cleanup func()
+		var err error
+		if cmd, cleanup, err = r.dkr.ExecCmd(context.Background(), cid, docker.ExecOpts{Dir: dir, Env: env}, argv); err != nil {
+			r.emitStep(st, Error, err.Error(), nil)
+			return Failure
+		}
+		defer cleanup()
+	} else {
+		cmd = exec.Command(argv[0], argv[1:]...)
+		cmd.Dir, cmd.Env = dir, env
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	var mu sync.Mutex // one line at a time across stdout and stderr
 	handle := func(line string) {

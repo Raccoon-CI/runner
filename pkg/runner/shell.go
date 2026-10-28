@@ -9,13 +9,14 @@ import (
 
 // shellCommand returns the command line that runs a `run:` script written to
 // scriptPath, following GitHub's table for Linux runners, and the script
-// body to write (pwsh gets GitHub's error-handling preamble).
-func shellCommand(shell, script, scriptPath string, pathEnv string) (argv []string, body string, err error) {
+// body to write (pwsh gets GitHub's error-handling preamble). look finds an
+// executable on pathEnv: on the host, or inside the job's container.
+func shellCommand(look func(name, pathEnv string) (string, error), shell, script, scriptPath string, pathEnv string) (argv []string, body string, err error) {
 	var format []string
 	switch shell {
 	case "":
 		// Unspecified runs a different command line than `shell: bash`.
-		if _, err := lookPath("bash", pathEnv); err == nil {
+		if _, err := look("bash", pathEnv); err == nil {
 			format = []string{"bash", "-e", "{0}"}
 		} else {
 			format = []string{"sh", "-e", "{0}"}
@@ -43,10 +44,10 @@ func shellCommand(shell, script, scriptPath string, pathEnv string) (argv []stri
 	for _, a := range format {
 		argv = append(argv, strings.ReplaceAll(a, "{0}", scriptPath))
 	}
-	exe, err := lookPath(argv[0], pathEnv)
+	exe, err := look(argv[0], pathEnv)
 	if err != nil && argv[0] == "python" {
 		// Debian has no `python` unless python-is-python3 is installed.
-		exe, err = lookPath("python3", pathEnv)
+		exe, err = look("python3", pathEnv)
 	}
 	if err != nil {
 		return nil, "", err
