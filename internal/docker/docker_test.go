@@ -109,6 +109,18 @@ func TestExecCmdKeepsValuesOffTheCommandLine(t *testing.T) {
 	}
 }
 
+func TestParseGateway(t *testing.T) {
+	gw, subnet, err := parseGateway(`[{"Subnet":"fd00::/64","Gateway":"fd00::1"},{"Subnet":"172.18.0.0/16","Gateway":"172.18.0.1"}]` + "\n")
+	if err != nil || gw.String() != "172.18.0.1" || subnet.String() != "172.18.0.0/16" {
+		t.Errorf("got %v %v %v", gw, subnet, err)
+	}
+	for _, bad := range []string{`[]`, `null`, `[{"Subnet":"172.18.0.0/16"}]`, `[{"Subnet":"10.0.0.0/8","Gateway":"172.18.0.1"}]`, `x`} {
+		if _, _, err := parseGateway(bad); err == nil {
+			t.Errorf("%s accepted", bad)
+		}
+	}
+}
+
 func TestRandomNameIsUnique(t *testing.T) {
 	a, b := RandomName("rc"), RandomName("rc")
 	if a == b || !strings.HasPrefix(a, "rc-") {
@@ -145,6 +157,9 @@ func TestRealDocker(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.NetworkRemove(context.Background(), net)
+	if gw, subnet, err := c.NetworkGateway(ctx, net); err != nil || !subnet.Contains(gw) {
+		t.Fatalf("NetworkGateway = %v, %v, %v", gw, subnet, err)
+	}
 
 	name := RandomName("rc-test")
 	id, err := c.Create(ctx, nil, "--name", name, "--network", net, "--network-alias", "svc", "--entrypoint", "tail", image, "-f", "/dev/null")

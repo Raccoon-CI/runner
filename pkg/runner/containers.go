@@ -313,6 +313,7 @@ func (r *jobRun) bringUp(ctx context.Context, job *containerSpec, services []nam
 		if err := r.startJobContainer(ctx, prefix, job); err != nil {
 			return fmt.Errorf("container: %w", err)
 		}
+		r.reachServices(ctx, prefix)
 	}
 
 	svcCtx := value.Object{}
@@ -476,6 +477,36 @@ func (r *jobRun) startJobContainer(ctx context.Context, prefix string, s *contai
 	return nil
 }
 
+// reachServices serves the runtime services (artifacts, cache) on the host's
+// address on the job's network, for steps in the job container. Failing is a
+// warning, not an error: the job may never call them.
+func (r *jobRun) reachServices(ctx context.Context, network string) {
+	if r.cfg.ContainerServices == nil || len(r.cfg.ServiceEnv) == 0 {
+		return
+	}
+	warn := func(err error) {
+		r.emit(Event{Kind: Warning, Step: initStep, Text: fmt.Sprintf("artifacts and the cache will not work in the job container: %v", err)})
+	}
+	if r.rootless {
+		warn(errors.New("rootless docker keeps its networks off this host's interfaces"))
+		return
+	}
+	gw, subnet, err := r.dkr.NetworkGateway(ctx, network)
+	if err != nil {
+		warn(err)
+		return
+	}
+	env, stop, err := r.cfg.ContainerServices(gw, subnet)
+	if err != nil {
+		warn(err)
+		return
+	}
+	r.mu.Lock()
+	r.cServiceEnv, r.cServiceStop = env, stop
+	r.mu.Unlock()
+	r.initOut("Serving artifacts and the cache to the job container at %s", gw)
+}
+
 // waitReady waits until a service container is healthy, or just running if its
 // image has no health check.
 func (r *jobRun) waitReady(ctx context.Context, id, name string) error {
@@ -546,7 +577,12 @@ func (r *jobRun) stopContainers() {
 	c, created, network, made, jobID := r.dkr, r.created, r.network, r.netMade, r.jobCID
 	r.created, r.netMade, r.jobCID = nil, false, ""
 	rootless := r.rootless
+	serviceStop := r.cServiceStop
+	r.cServiceEnv, r.cServiceStop = nil, nil
 	r.mu.Unlock()
+	if serviceStop != nil {
+		defer serviceStop() // after the containers that used it are gone
+	}
 	if c == nil || (len(created) == 0 && !made) {
 		return
 	}

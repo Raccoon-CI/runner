@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -84,6 +85,13 @@ type Config struct {
 	// ServiceEnv is added to every step's environment: the URLs and tokens of
 	// the runtime services (artifacts, cache, OIDC).
 	ServiceEnv map[string]string
+	// ContainerServices makes the runtime services reachable from a job
+	// container, whose loopback is not the host's. It is called once the
+	// job's docker network exists, with the host's address on that network
+	// and the network's subnet, and returns the ServiceEnv for the
+	// container's steps and a func that stops serving there. Without it, or
+	// if it fails (a warning), container steps get ServiceEnv unchanged.
+	ContainerServices func(gateway netip.Addr, subnet netip.Prefix) (env map[string]string, stop func(), err error)
 	// Docker runs container jobs and service containers; nil means the docker
 	// found on PATH, looked for only when a job needs it.
 	Docker *docker.Client
@@ -173,9 +181,11 @@ type jobRun struct {
 	rootless     bool
 	network      string
 	netMade      bool
-	created      []string // containers to remove, job container included
-	jobCID       string   // the job container, if the job has one
-	cBase        []string // its environment: the image's, plus the spec's
+	created      []string          // containers to remove, job container included
+	jobCID       string            // the job container, if the job has one
+	cBase        []string          // its environment: the image's, plus the spec's
+	cServiceEnv  map[string]string // ServiceEnv as seen from the job container
+	cServiceStop func()
 	ctxContainer value.Object
 	ctxServices  value.Object
 	lookups      map[string]string

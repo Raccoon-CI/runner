@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"os/exec"
 	"strings"
@@ -114,6 +115,31 @@ func (c *Client) NetworkCreate(ctx context.Context, name string, labels ...strin
 	}
 	_, err := c.run(ctx, nil, "", append(args, name)...)
 	return err
+}
+
+// NetworkGateway returns a bridge network's IPv4 gateway, which is the host's
+// own address on that network, and the network's subnet.
+func (c *Client) NetworkGateway(ctx context.Context, name string) (netip.Addr, netip.Prefix, error) {
+	out, err := c.run(ctx, nil, "", "network", "inspect", "--format", "{{json .IPAM.Config}}", name)
+	if err != nil {
+		return netip.Addr{}, netip.Prefix{}, err
+	}
+	return parseGateway(out)
+}
+
+func parseGateway(out string) (netip.Addr, netip.Prefix, error) {
+	var cfgs []struct{ Gateway, Subnet string }
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &cfgs); err != nil {
+		return netip.Addr{}, netip.Prefix{}, fmt.Errorf("docker network inspect: %w", err)
+	}
+	for _, cf := range cfgs {
+		gw, gerr := netip.ParseAddr(cf.Gateway)
+		subnet, serr := netip.ParsePrefix(cf.Subnet)
+		if gerr == nil && serr == nil && gw.Is4() && subnet.Contains(gw) {
+			return gw, subnet.Masked(), nil
+		}
+	}
+	return netip.Addr{}, netip.Prefix{}, errors.New("the network has no IPv4 gateway")
 }
 
 func (c *Client) NetworkRemove(ctx context.Context, name string) error {

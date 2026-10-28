@@ -401,6 +401,10 @@ var githubEnv = []string{
 func (r *jobRun) processEnv(env value.Object, st *stepState, extra [][2]string) []string {
 	r.mu.Lock()
 	base := slices.Clone(r.cBase) // a container job starts from its image's environment
+	serviceEnv := r.cfg.ServiceEnv
+	if r.cServiceEnv != nil {
+		serviceEnv = r.cServiceEnv
+	}
 	r.mu.Unlock()
 	if base == nil {
 		base = r.cfg.BaseEnv
@@ -441,7 +445,7 @@ func (r *jobRun) processEnv(env value.Object, st *stepState, extra [][2]string) 
 		set("ImageOS", img.Image)
 		set("ImageVersion", img.Version)
 	}
-	for k, v := range r.cfg.ServiceEnv {
+	for k, v := range serviceEnv {
 		set(k, v)
 	}
 	for _, kv := range extra {
