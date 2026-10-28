@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"racoonci/internal/catalog"
 	"racoonci/internal/expr"
 	"racoonci/internal/platform"
 	"racoonci/internal/runner"
@@ -25,6 +26,8 @@ type Options struct {
 	Vars    value.Object
 	Inputs  value.Object
 	Images  *runnerimages.Snapshot
+	// Catalog defaults to catalog.Default().
+	Catalog *catalog.Catalog
 
 	// WorkDir gets one directory per job instance.
 	WorkDir string
@@ -64,6 +67,9 @@ func Run(ctx context.Context, w *workflow.Workflow, opts Options) (*Result, erro
 	}
 	if opts.MaxParallel < 1 {
 		opts.MaxParallel = 1
+	}
+	if opts.Catalog == nil {
+		opts.Catalog = catalog.Default()
 	}
 	e := &engine{
 		w: w, opts: opts,
@@ -339,13 +345,14 @@ func (e *engine) runInstance(ctx context.Context, j *workflow.Job, combo, strate
 	if err != nil {
 		return fail("runs-on: %v", err)
 	}
-	if os := platform.FromRunsOn(runsOn); os != "" && !platform.Available(os) {
-		return fail("%s", platform.Unavailable(os))
+	cat := e.opts.Catalog
+	if os := platform.FromRunsOn(cat, runsOn); os != "" && !cat.OSAvailable(os) {
+		return fail("%s", cat.OSUnavailable(os))
 	}
 	var image *runnerimages.Defaults
 	if e.opts.Images != nil {
 		for _, l := range platform.Labels(runsOn) {
-			if image = e.opts.Images.ForLabel(l); image != nil {
+			if image = e.opts.Images.ForLabel(cat, l); image != nil {
 				break
 			}
 		}
@@ -357,6 +364,9 @@ func (e *engine) runInstance(ctx context.Context, j *workflow.Job, combo, strate
 	e.mu.Unlock()
 	cfg := e.opts.Runner
 	cfg.WorkDir = dir
+	if cfg.Catalog == nil {
+		cfg.Catalog = cat
+	}
 	r, err := runner.Run(ctx, cfg, &runner.Job{
 		Workflow: e.w,
 		Job:      j,

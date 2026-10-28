@@ -17,8 +17,12 @@ func isRemote(uses string) bool {
 	return uses != "" && uses != "." && !strings.HasPrefix(uses, "./") && !strings.HasPrefix(uses, "docker://")
 }
 
-func isCheckout(uses string) bool {
-	return strings.HasPrefix(strings.ToLower(uses), "actions/checkout@")
+// isCheckout reports whether uses is the action that checks out the
+// repository, as the catalog says.
+func (r *jobRun) isCheckout(uses string) bool {
+	name, _, _ := strings.Cut(uses, "@")
+	a := r.cfg.Catalog.Action(name)
+	return a != nil && a.Checkout
 }
 
 // fetch downloads a remote action's repository, once per job.
@@ -69,7 +73,7 @@ func (r *jobRun) preState(s *workflow.Step) map[string]string {
 // step's own if: is evaluated later, when its main part is due.
 func (r *jobRun) runPres(ctx context.Context, top *scope) {
 	for _, s := range r.job.Job.Steps {
-		if !isRemote(s.Uses) || (r.cfg.Checkout != nil && isCheckout(s.Uses)) {
+		if !isRemote(s.Uses) || (r.cfg.Checkout != nil && r.isCheckout(s.Uses)) {
 			continue
 		}
 		dir, ref, err := r.actionDir(ctx, s.Uses)
@@ -199,7 +203,7 @@ func (r *jobRun) runUses(ctx context.Context, sc *scope, s *workflow.Step, st *s
 	case !isRemote(uses):
 		info = &actionInfo{path: filepath.Join(r.workspace, filepath.FromSlash(uses))}
 	default:
-		if r.cfg.Checkout != nil && isCheckout(uses) {
+		if r.cfg.Checkout != nil && r.isCheckout(uses) {
 			handled, err := r.cfg.Checkout(ctx, r.workspace, withObj)
 			if err != nil {
 				return fail("checkout: %v", err)

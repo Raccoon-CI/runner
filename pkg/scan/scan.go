@@ -199,7 +199,7 @@ func (s *scanner) setup(where, action, ref string, sa *catalog.ActionDef, st *wo
 		}
 		return
 	}
-	if sa.VersionFromRef && ref != "" && !strings.HasPrefix(ref, "v") && ref != "master" {
+	if sa.IsVersionRef(ref) {
 		demand(ref, fmt.Sprintf("%s: %s@%s", where, action, ref), false)
 		return
 	}
@@ -298,42 +298,50 @@ func (s *scanner) call(where string, ce *syntax.CallExpr, funcs map[string]bool)
 			return
 		}
 	}
-	s.checkUbuntuOnly(where, cmd, rest)
-	if (cmd == "apt-get" || cmd == "apt") && slices.Contains(rest, "install") {
-		for _, a := range rest {
-			if a != "" && a != "install" && !strings.HasPrefix(a, "-") {
-				s.provided[a] = true // the job installs it itself
-			}
-		}
+	s.checkCompat(where, cmd, rest)
+	for _, pkg := range s.cat.Installs(cmd, rest) {
+		s.provided[pkg] = true // the job installs it itself
 	}
 	if r, ok := s.cat.Command(cmd); ok {
 		s.need(where, cmd, r)
 	}
 }
 
-// skipWrappers drops sudo, env VAR=x, timeout 5m and the like.
+// skipWrappers drops sudo, env VAR=x, timeout 5m and the like, as the
+// catalog describes them.
 func (s *scanner) skipWrappers(args []string) []string {
-	for len(args) > 0 && s.cat.IsWrapper(args[0]) {
-		w := args[0]
+	for len(args) > 0 {
+		w := s.cat.Wrapper(args[0])
+		if w == nil {
+			break
+		}
 		args = args[1:]
-		for len(args) > 0 && (strings.HasPrefix(args[0], "-") || w == "env" && strings.Contains(args[0], "=")) {
+		for len(args) > 0 && (strings.HasPrefix(args[0], "-") || w.SkipAssignments && strings.Contains(args[0], "=")) {
 			args = args[1:]
 		}
-		if w == "timeout" && len(args) > 0 {
-			args = args[1:] // the duration
-		}
+		args = args[min(w.SkipArgs, len(args)):]
 	}
 	return args
 }
 
-func (s *scanner) checkUbuntuOnly(where, cmd string, args []string) {
-	switch cmd {
-	case "lsb_release":
-		s.warn(where + ": lsb_release reports Debian's 'trixie' here, not Ubuntu's 'noble' (Racoon CI machines run Debian 13), so apt sources or downloads built from it may not exist")
-	case "add-apt-repository", "apt-add-repository":
+// checkCompat applies the catalog's warnings about commands that behave
+// differently on Racoon CI's machines than on GitHub's Ubuntu images.
+func (s *scanner) checkCompat(where, cmd string, args []string) {
+	image := ""
+	if s.in.Image != nil {
+		image = s.in.Image.Image
+	}
+	for _, w := range s.cat.CompatWarnings {
+		if !slices.Contains(w.Commands, cmd) {
+			continue
+		}
+		if w.ArgPrefix == "" {
+			s.warn(where + ": " + s.cat.CompatMessage(w, image, ""))
+			continue
+		}
 		for _, a := range args {
-			if strings.HasPrefix(a, "ppa:") {
-				s.warn(where + ": adds the Ubuntu PPA " + a + "; PPAs are built for Ubuntu and may not install on Debian 13")
+			if strings.HasPrefix(a, w.ArgPrefix) {
+				s.warn(where + ": " + s.cat.CompatMessage(w, image, a))
 			}
 		}
 	}

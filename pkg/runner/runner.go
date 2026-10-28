@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"racoonci/internal/actions"
+	"racoonci/internal/catalog"
 	"racoonci/internal/expr"
 	"racoonci/internal/runnerimages"
 	"racoonci/internal/value"
@@ -64,6 +65,8 @@ type Config struct {
 	ToolCache string
 	// Actions downloads remote actions.
 	Actions *actions.Store
+	// Catalog says which action is the checkout; nil means catalog.Default().
+	Catalog *catalog.Catalog
 	// Node returns the node binary for a JavaScript action's runs.using
 	// (node20, node24, ...).
 	Node func(ctx context.Context, using string) (string, error)
@@ -156,6 +159,9 @@ type jobRun struct {
 // Run runs the job. Step failures are reported in the Result; the error is
 // only for problems with the machine itself, like an unwritable WorkDir.
 func Run(ctx context.Context, cfg Config, job *Job) (*Result, error) {
+	if cfg.Catalog == nil {
+		cfg.Catalog = catalog.Default()
+	}
 	r := &jobRun{cfg: cfg, job: job, actionIDs: map[string]int{}, remoteActs: map[string]string{}}
 	if err := r.setupDirs(); err != nil {
 		return nil, err
@@ -317,7 +323,7 @@ func (r *jobRun) prepare() error {
 // typo in a uses: fails the job before anything runs.
 func (r *jobRun) fetchActions(ctx context.Context) error {
 	for _, s := range r.job.Job.Steps {
-		if !isRemote(s.Uses) || (r.cfg.Checkout != nil && isCheckout(s.Uses)) {
+		if !isRemote(s.Uses) || (r.cfg.Checkout != nil && r.isCheckout(s.Uses)) {
 			continue // the Checkout hook may make the download unnecessary
 		}
 		if _, err := r.fetch(ctx, s.Uses); err != nil {
