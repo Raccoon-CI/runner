@@ -72,6 +72,10 @@ type Config struct {
 	// Node returns the node binary for a JavaScript action's runs.using
 	// (node20, node24, ...).
 	Node func(ctx context.Context, using string) (string, error)
+	// NodeMusl is Node for job containers whose image uses musl (Alpine),
+	// which the glibc builds cannot run on. Without it such a container
+	// fails JavaScript actions with an explanation.
+	NodeMusl func(ctx context.Context, using string) (string, error)
 	// BaseEnv is the environment every step starts from; os.Environ() if nil.
 	BaseEnv []string
 	// Checkout, if set, replaces actions/checkout of the workflow's own
@@ -190,6 +194,8 @@ type jobRun struct {
 	ctxServices  value.Object
 	lookups      map[string]string
 	nodeChecks   map[string]error // node binary -> why it cannot run in the job container, or nil
+	muslChecked  bool
+	musl         bool // the job container's image uses musl
 }
 
 // Run runs the job. Step failures are reported in the Result; the error is

@@ -285,12 +285,16 @@ func (r *jobRun) runNode(ctx context.Context, st *stepState, a *actions.Action, 
 		r.emitStep(st, Error, "no Node.js runtime configured for JavaScript actions", nil)
 		return Failure
 	}
-	node, err := r.cfg.Node(ctx, a.Runs.Using)
+	nodeFor := r.cfg.Node
+	if r.cfg.NodeMusl != nil && r.containerIsMusl(ctx) {
+		nodeFor = r.cfg.NodeMusl
+	}
+	node, err := nodeFor(ctx, a.Runs.Using)
 	if err != nil {
 		r.emitStep(st, Error, fmt.Sprintf("%s runtime: %v", a.Runs.Using, err), nil)
 		return Failure
 	}
-	if err := r.checkNodeRuns(ctx, node); err != nil {
+	if err := r.checkNodeRuns(ctx, st, node); err != nil {
 		r.emitStep(st, Error, err.Error(), nil)
 		return Failure
 	}

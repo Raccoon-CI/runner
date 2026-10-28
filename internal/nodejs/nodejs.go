@@ -25,13 +25,31 @@ import (
 
 const (
 	DefaultBaseURL = "https://nodejs.org/dist"
-	maxDownload    = 512 << 20
+	// UnofficialBaseURL is the Node.js project's own host for builds it does
+	// not release: the musl ones, which images such as Alpine need. GitHub's
+	// runner takes its Alpine Node.js from there too. It has the same layout
+	// and SHASUMS256.txt as nodejs.org.
+	UnofficialBaseURL = "https://unofficial-builds.nodejs.org/download/release"
+	maxDownload       = 512 << 20
 )
 
 // Release is one entry of nodejs.org's index.
 type Release struct {
-	Version string // with the leading v, e.g. v24.11.0
-	LTS     string // the LTS line's codename (Iron, Jod), "" if not an LTS release
+	Version string   // with the leading v, e.g. v24.11.0
+	LTS     string   // the LTS line's codename (Iron, Jod), "" if not an LTS release
+	Files   []string // the builds it has, e.g. linux-x64, linux-x64-musl
+}
+
+// hasBuild says whether the release has this machine's build of the flavor.
+func (r Release) hasBuild(musl bool) bool {
+	return slices.Contains(r.Files, "linux-"+Arch()+flavor(musl))
+}
+
+func flavor(musl bool) string {
+	if musl {
+		return "-musl"
+	}
+	return ""
 }
 
 // Index lists the releases on baseURL, newest first.
@@ -44,13 +62,14 @@ func Index(ctx context.Context, client *http.Client, baseURL string) ([]Release,
 	var raw []struct {
 		Version string          `json:"version"`
 		LTS     json.RawMessage `json:"lts"` // false, or the codename
+		Files   []string        `json:"files"`
 	}
 	if err := json.NewDecoder(io.LimitReader(body, 16<<20)).Decode(&raw); err != nil {
 		return nil, fmt.Errorf("nodejs.org index: %w", err)
 	}
 	out := make([]Release, len(raw))
 	for i, r := range raw {
-		out[i].Version = r.Version
+		out[i].Version, out[i].Files = r.Version, r.Files
 		_ = json.Unmarshal(r.LTS, &out[i].LTS) // a string for LTS releases, false otherwise
 	}
 	return out, nil
@@ -71,7 +90,16 @@ func Arch() string {
 // dest, without the archive's top-level directory, so dest/bin/node exists.
 // dest only appears once the download has been verified.
 func Fetch(ctx context.Context, client *http.Client, baseURL, version, dest string) error {
-	file := fmt.Sprintf("node-%s-linux-%s.tar.gz", version, Arch())
+	return fetch(ctx, client, baseURL, version, dest, false)
+}
+
+// FetchMusl is Fetch for the musl build (baseURL is UnofficialBaseURL).
+func FetchMusl(ctx context.Context, client *http.Client, baseURL, version, dest string) error {
+	return fetch(ctx, client, baseURL, version, dest, true)
+}
+
+func fetch(ctx context.Context, client *http.Client, baseURL, version, dest string, musl bool) error {
+	file := fmt.Sprintf("node-%s-linux-%s%s.tar.gz", version, Arch(), flavor(musl))
 	want, err := checksum(ctx, client, baseURL, version, file)
 	if err != nil {
 		return err
@@ -129,6 +157,9 @@ type Runtime struct {
 	// Catalog maps runs.using to a Node.js major (GitHub forces retired
 	// runtimes onto newer ones); nil means catalog.Default().
 	Catalog *catalog.Catalog
+	// Musl provides the musl build, for job containers whose image has no
+	// glibc. Give it a Dir of its own.
+	Musl bool
 
 	mu       sync.Mutex
 	resolved map[string]string // major -> node binary
@@ -136,6 +167,11 @@ type Runtime struct {
 
 func New(dir string) *Runtime {
 	return &Runtime{Dir: dir, Client: http.DefaultClient, BaseURL: DefaultBaseURL}
+}
+
+// NewMusl is New for the musl build.
+func NewMusl(dir string) *Runtime {
+	return &Runtime{Dir: dir, Client: http.DefaultClient, BaseURL: UnofficialBaseURL, Musl: true}
 }
 
 // Binary returns the node binary for runs.using, downloading the newest
@@ -163,7 +199,7 @@ func (rt *Runtime) Binary(ctx context.Context, using string) (string, error) {
 		return "", err
 	}
 	if _, err := os.Stat(rt.binary(version)); err != nil {
-		if err := Fetch(ctx, rt.Client, rt.BaseURL, version, filepath.Join(rt.Dir, version)); err != nil {
+		if err := fetch(ctx, rt.Client, rt.BaseURL, version, filepath.Join(rt.Dir, version), rt.Musl); err != nil {
 			return "", err
 		}
 	}
@@ -189,7 +225,8 @@ func (rt *Runtime) latest(ctx context.Context, major string) (string, error) {
 		return "", err
 	}
 	for _, r := range releases { // newest first
-		if strings.HasPrefix(r.Version, "v"+major+".") {
+		// Not every release has every build, the unofficial ones least of all.
+		if strings.HasPrefix(r.Version, "v"+major+".") && (r.hasBuild(rt.Musl) || len(r.Files) == 0) {
 			return r.Version, nil
 		}
 	}

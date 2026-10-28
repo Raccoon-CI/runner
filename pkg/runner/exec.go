@@ -32,9 +32,25 @@ const (
 // step's outcome. Cancelling ctx interrupts the whole group.
 func (r *jobRun) exec(ctx context.Context, st *stepState, argv []string, dir string, env []string) Conclusion {
 	var cmd *exec.Cmd
-	if cid := r.containerID(); cid != "" {
-		// Inside the job container. Cancelling kills the docker client; the
-		// process in the container goes with the container at job end.
+	cid := r.containerID()
+	pidFile := ""
+	if cid != "" {
+		// Inside the job container. `docker exec` forwards no signals, so the
+		// process is started through a shell that records its pid (which is
+		// also its process group, docker makes every exec a group leader) in
+		// a file both sides see; cancelling signals it with another exec.
+		if f, err := os.CreateTemp(r.temp, "pid-*"); err == nil {
+			f.Close()
+			if os.Chmod(f.Name(), 0o666) == nil { // the step may run as another user
+				pidFile = f.Name()
+				defer os.Remove(pidFile)
+			}
+		}
+		if pidFile != "" && r.hasShell(cid) {
+			argv = append([]string{"/bin/sh", "-c", `echo $$ >"$0" && exec "$@"`, pidFile}, argv...)
+		} else {
+			pidFile = ""
+		}
 		var cleanup func()
 		var err error
 		if cmd, cleanup, err = r.dkr.ExecCmd(context.Background(), cid, docker.ExecOpts{Dir: dir, Env: env}, argv); err != nil {
@@ -67,11 +83,20 @@ func (r *jobRun) exec(ctx context.Context, st *stepState, argv []string, dir str
 
 	done := make(chan struct{})
 	go func() {
+		// For a container step the signal goes to the process in the
+		// container, and the docker client leaves when that process does.
+		// Only if that cannot be done is the client itself signalled.
+		signal := func(sig syscall.Signal) {
+			if pidFile == "" || !r.signalInContainer(cid, pidFile, sig) {
+				_ = syscall.Kill(-pgid, sig)
+			}
+		}
 		select {
 		case <-ctx.Done():
-			_ = syscall.Kill(-pgid, syscall.SIGINT)
+			signal(syscall.SIGINT)
 			select {
 			case <-time.After(killGrace):
+				signal(syscall.SIGKILL)
 				_ = syscall.Kill(-pgid, syscall.SIGKILL)
 			case <-done:
 			}

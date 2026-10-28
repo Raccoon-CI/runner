@@ -1,15 +1,18 @@
 package runner
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"raccoonci/internal/docker"
+	"raccoonci/internal/nodejs"
 	"raccoonci/internal/value"
 )
 
@@ -270,12 +273,69 @@ jobs:
 	if b, _ := os.ReadFile(files[0]); string(b) != "file from the container\n" {
 		t.Errorf("file = %q", b)
 	}
+	// The step ran as root in the container; the job's end gave the file back.
+	if fi, err := os.Stat(files[0]); err != nil {
+		t.Error(err)
+	} else if st, ok := fi.Sys().(*syscall.Stat_t); ok && int(st.Uid) != os.Getuid() && os.Getuid() != 0 {
+		t.Errorf("out.txt is owned by uid %d, not %d", st.Uid, os.Getuid())
+	}
 	// The host's HOME did not leak into the container.
 	if strings.Contains(out, "HOME="+filepath.Dir(workDir)) {
 		t.Errorf("host environment leaked:\n%s", out)
 	}
 	if after := leftovers(t); after != before {
 		t.Errorf("containers or networks left behind:\n%s", after)
+	}
+}
+
+// Cancelling a step interrupts the process in the container (docker exec
+// forwards no signals itself): the step's trap runs, its background child dies
+// with the group, and the always() step after it finds nothing left over.
+func TestRealContainerCancelSignalsTheStep(t *testing.T) {
+	dockerTest(t)
+	before := leftovers(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	start := time.Now()
+	res, rec := run(t, testJob{ctx: ctx, yaml: `
+on: push
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    container: busybox:1.36
+    steps:
+      - run: |
+          trap 'echo got-interrupt; exit 0' INT
+          sleep 300 &
+          echo step-started
+          wait
+      - if: always()
+        run: |
+          echo "left: $(ps | grep -c '[s]leep 300')"
+`, configFn: func(c *Config) {
+		// Cancel once the step is running, whatever the image pull took.
+		orig := c.OnEvent
+		c.OnEvent = func(e Event) {
+			orig(e)
+			if e.Kind == Output && e.Text == "step-started" {
+				time.AfterFunc(500*time.Millisecond, cancel)
+			}
+		}
+	}})
+	out := rec.output()
+	if res.Conclusion != Cancelled {
+		t.Fatalf("conclusion %s\n%s", res.Conclusion, rec.dump())
+	}
+	for _, want := range []string{"got-interrupt", "left: 0"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q\n%s", want, rec.dump())
+		}
+	}
+	if d := time.Since(start); d > 90*time.Second {
+		t.Errorf("took %s", d)
+	}
+	if after := leftovers(t); after != before {
+		t.Errorf("left behind:\n%s", after)
 	}
 }
 
@@ -378,6 +438,140 @@ jobs:
 	out := rec.output()
 	if res.Conclusion != Success || !strings.Contains(out, "+PONG") {
 		t.Fatalf("conclusion %s\n%s", res.Conclusion, out)
+	}
+	if after := leftovers(t); after != before {
+		t.Errorf("left behind:\n%s", after)
+	}
+}
+
+// A JavaScript action in an Alpine job container runs on the musl Node.js, with
+// libstdc++ added to the image by the runner. It needs the network for the
+// Node.js download and for apk.
+func TestRealAlpineNodeAction(t *testing.T) {
+	dockerTest(t)
+	nodeDir := t.TempDir()
+	image := "alpine:3.20"
+	if v := os.Getenv("RACCOONCI_TEST_ALPINE_IMAGE"); v != "" { // e.g. an image whose apk mirrors work behind a proxy
+		image = v
+	}
+	res, rec := run(t, testJob{
+		files: map[string]string{
+			"js/action.yml": "name: js\nruns:\n  using: node20\n  main: main.js\n",
+			"js/main.js":    "console.log('libc=' + (process.report.getReport().header.glibcVersionRuntime || 'musl'));\n",
+		},
+		yaml: `
+on: push
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    container: ` + image + `
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./js
+`,
+		configFn: func(c *Config) {
+			musl := nodejs.NewMusl(filepath.Join(nodeDir, "musl"))
+			c.NodeMusl = musl.Binary
+			c.Mounts = []string{nodeDir}
+		},
+	})
+	if rec.has(Error, "installing libstdc++ with apk failed") {
+		t.Skip("apk cannot reach the Alpine mirrors from here")
+	}
+	if res.Conclusion != Success || !rec.has(Output, "libc=musl") || !rec.has(Notice, "libstdc++") {
+		t.Fatalf("%s\n%s", res.Conclusion, rec.dump())
+	}
+}
+
+// TestRealPrivateRegistry pulls the job's image from a registry that wants a
+// login, with the workflow's credentials: a local registry:2 with basic auth.
+func TestRealPrivateRegistry(t *testing.T) {
+	dockerTest(t)
+	before := leftovers(t)
+	docker := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command("docker", args...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("docker %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	const user, pass = "raccoon", "t3st-pa55-w0rd"
+
+	auth := t.TempDir()
+	docker("pull", "--quiet", "httpd:2.4")
+	docker("pull", "--quiet", "registry:2")
+	docker("pull", "--quiet", "busybox:1.36")
+	htpasswd := docker("run", "--rm", "httpd:2.4", "htpasswd", "-Bbn", user, pass)
+	if err := os.WriteFile(filepath.Join(auth, "htpasswd"), []byte(htpasswd+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reg := docker("run", "-d", "--rm", "-p", "127.0.0.1::5000", "-v", auth+":/auth:ro",
+		"-e", "REGISTRY_AUTH=htpasswd", "-e", "REGISTRY_AUTH_HTPASSWD_REALM=test",
+		"-e", "REGISTRY_AUTH_HTPASSWD_PATH=/auth/htpasswd", "registry:2")
+	t.Cleanup(func() { exec.Command("docker", "rm", "-f", reg).Run() })
+	hostPort := docker("port", reg, "5000/tcp") // 127.0.0.1:49153
+	addr := "localhost:" + hostPort[strings.LastIndex(hostPort, ":")+1:]
+	image := addr + "/private/busybox:1.36"
+
+	// Put an image there, then forget it locally so the job has to pull it.
+	cfg := t.TempDir()
+	login := exec.Command("docker", "--config", cfg, "login", "--username", user, "--password-stdin", addr)
+	login.Stdin = strings.NewReader(pass)
+	for i := 0; ; i++ { // the registry needs a moment to listen
+		if out, err := login.CombinedOutput(); err == nil {
+			break
+		} else if i == 20 {
+			t.Fatalf("login: %v\n%s", err, out)
+		}
+		time.Sleep(500 * time.Millisecond)
+		login = exec.Command("docker", "--config", cfg, "login", "--username", user, "--password-stdin", addr)
+		login.Stdin = strings.NewReader(pass)
+	}
+	docker("tag", "busybox:1.36", image)
+	docker("--config", cfg, "push", "--quiet", image)
+	docker("rmi", image)
+
+	job := func(password string) string {
+		return `
+on: push
+jobs:
+  j:
+    runs-on: ubuntu-latest
+    container:
+      image: ` + image + `
+      credentials:
+        username: ` + user + `
+        password: ` + password + `
+    steps:
+      - run: echo from-private-image
+`
+	}
+	res, rec := run(t, testJob{yaml: job(pass)})
+	if res.Conclusion != Success || !rec.has(Output, "from-private-image") {
+		t.Fatalf("with the right password: %s\n%s", res.Conclusion, rec.dump())
+	}
+	if strings.Contains(rec.dump(), pass) {
+		t.Errorf("the password reached the log:\n%s", rec.dump())
+	}
+
+	docker("rmi", image)
+	res, rec = run(t, testJob{yaml: job("wrong-password")})
+	if res.Conclusion != Failure || rec.has(Output, "from-private-image") {
+		t.Errorf("with a wrong password: %s\n%s", res.Conclusion, rec.dump())
+	}
+	if !rec.has(Error, "unauthorized") && !rec.has(Error, "denied") && !rec.has(Error, "login") {
+		t.Errorf("the failure does not say why:\n%s", rec.dump())
+	}
+	if strings.Contains(rec.dump(), "wrong-password") {
+		t.Errorf("the password reached the log:\n%s", rec.dump())
+	}
+
+	// Without credentials the pull is refused too, and no login state is left
+	// in the user's own docker config.
+	docker("rmi", "-f", image)
+	if out, err := exec.Command("docker", "pull", image).CombinedOutput(); err == nil {
+		t.Errorf("an anonymous pull worked; the job's login leaked into the host's config:\n%s", out)
 	}
 	if after := leftovers(t); after != before {
 		t.Errorf("left behind:\n%s", after)

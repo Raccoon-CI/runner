@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"raccoonci/internal/docker"
@@ -40,6 +42,10 @@ const (
 var (
 	healthTimeout = 5 * time.Minute
 	healthPoll    = 2 * time.Second
+	// A service without a health check is taken as ready once it has stayed
+	// up this long, which catches one that dies on start (a bad command, a
+	// missing variable) before steps run against it.
+	settleTime = time.Second
 )
 
 var serviceID = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]{0,39}$`)
@@ -510,7 +516,8 @@ func (r *jobRun) reachServices(ctx context.Context, network string) {
 // waitReady waits until a service container is healthy, or just running if its
 // image has no health check.
 func (r *jobRun) waitReady(ctx context.Context, id, name string) error {
-	deadline := time.Now().Add(healthTimeout)
+	began := time.Now()
+	deadline := began.Add(healthTimeout)
 	for {
 		in, err := r.dkr.Inspect(ctx, id)
 		if err != nil {
@@ -527,7 +534,15 @@ func (r *jobRun) waitReady(ctx context.Context, id, name string) error {
 		case !in.State.Running:
 			return fail("exited with code %d", in.State.ExitCode)
 		case in.State.Health == nil:
-			return nil
+			if time.Since(began) >= settleTime {
+				return nil
+			}
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(settleTime / 5):
+			}
+			continue
 		case in.State.Health.Status == "healthy":
 			r.initOut("Service %s is healthy", name)
 			return nil
@@ -610,11 +625,63 @@ func (r *jobRun) stopContainers() {
 	}
 }
 
+// hasShell says whether the job container has /bin/sh, which steps are
+// started through (see exec).
+func (r *jobRun) hasShell(cid string) bool {
+	_, err := r.lookup("/bin/sh", defaultPath)
+	return err == nil && cid != ""
+}
+
+// signalInContainer sends sig to the process group of a step running in the
+// job container, whose pid is in pidFile. It reports whether it could.
+func (r *jobRun) signalInContainer(cid, pidFile string, sig syscall.Signal) bool {
+	b, err := os.ReadFile(pidFile)
+	pid, perr := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil || perr != nil || pid <= 1 {
+		return false // the step has not started yet
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	// As root, whatever user the step runs as.
+	_, err = r.dkr.Output(ctx, cid, docker.ExecOpts{User: "0"}, "/bin/sh", "-c",
+		`kill "-$1" -- "-$2"`, "sh", strconv.Itoa(int(sig)), strconv.Itoa(pid))
+	return err == nil
+}
+
+// containerIsMusl says whether the job container's image is built on musl
+// (Alpine), whose dynamic loader is /lib/ld-musl-*. Host jobs and images
+// without either loader (distroless, scratch) are not.
+func (r *jobRun) containerIsMusl(ctx context.Context) bool {
+	cid := r.containerID()
+	if cid == "" {
+		return false
+	}
+	r.mu.Lock()
+	checked, musl := r.muslChecked, r.musl
+	r.mu.Unlock()
+	if !checked {
+		cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+		_, err := r.dkr.Output(cctx, cid, docker.ExecOpts{}, "/bin/sh", "-c",
+			`for f in /lib/ld-musl-*.so.1 /usr/lib/ld-musl-*.so.1; do [ -e "$f" ] && exit 0; done; exit 1`)
+		musl = err == nil
+		r.mu.Lock()
+		r.muslChecked, r.musl = true, musl
+		r.mu.Unlock()
+	}
+	return musl
+}
+
 // checkNodeRuns makes sure the Node.js a JavaScript action needs can run in
-// the job container. The runtimes are the glibc builds from nodejs.org, bind
-// mounted from the host; an image without glibc (Alpine) cannot execute them,
-// and the kernel's own "no such file or directory" says nothing about why.
-func (r *jobRun) checkNodeRuns(ctx context.Context, node string) error {
+// the job container. The runtimes are bind mounted from the host: the glibc
+// builds, or for a musl image (Alpine) the musl builds. When even those cannot
+// run (another architecture, a minimal image), the kernel's own "no such file
+// or directory" says nothing about why, so this says it.
+//
+// The musl build links libstdc++ dynamically, which Alpine does not ship, so
+// when it will not start in a musl container, libstdc++ is installed with apk
+// (as root, in this job's container only) and the step log says so.
+func (r *jobRun) checkNodeRuns(ctx context.Context, st *stepState, node string) error {
 	cid := r.containerID()
 	if cid == "" {
 		return nil
@@ -623,12 +690,22 @@ func (r *jobRun) checkNodeRuns(ctx context.Context, node string) error {
 	err, done := r.nodeChecks[node]
 	r.mu.Unlock()
 	if !done {
-		cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		cctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
-		if _, xerr := r.dkr.Output(cctx, cid, docker.ExecOpts{}, node, "--version"); xerr != nil {
-			err = fmt.Errorf("the job container cannot run Node.js (%s), which JavaScript actions need. "+
-				"Raccoon CI mounts the glibc build of Node.js, so images without glibc, such as Alpine, "+
-				"cannot run them yet: use a Debian- or Ubuntu-based image", node)
+		_, xerr := r.dkr.Output(cctx, cid, docker.ExecOpts{}, node, "--version")
+		var hint string
+		if xerr != nil && r.containerIsMusl(ctx) {
+			r.emitStep(st, Notice, "Node.js needs libstdc++, which this Alpine image lacks; installing it with apk", nil)
+			if _, ierr := r.dkr.Output(cctx, cid, docker.ExecOpts{User: "0"}, "apk", "add", "--no-cache", "libstdc++"); ierr != nil {
+				hint = fmt.Sprintf(" (installing libstdc++ with apk failed: %s; add it to the image)", firstLine(ierr.Error(), 300))
+			} else {
+				_, xerr = r.dkr.Output(cctx, cid, docker.ExecOpts{}, node, "--version")
+			}
+		}
+		if xerr != nil {
+			err = fmt.Errorf("the job container cannot run Node.js (%s), which JavaScript actions need: %s%s. "+
+				"Raccoon CI mounts a glibc or musl build matching the image's libc, so the image is something else "+
+				"(distroless, another architecture): use a Debian-, Ubuntu- or Alpine-based image", node, firstLine(xerr.Error(), 300), hint)
 		}
 		r.mu.Lock()
 		if r.nodeChecks == nil {
@@ -638,6 +715,15 @@ func (r *jobRun) checkNodeRuns(ctx context.Context, node string) error {
 		r.mu.Unlock()
 	}
 	return err
+}
+
+// firstLine is s up to its first line break, cut to max bytes.
+func firstLine(s string, max int) string {
+	s, _, _ = strings.Cut(strings.TrimSpace(s), "\n")
+	if len(s) > max {
+		s = s[:max] + "…"
+	}
+	return s
 }
 
 // lookup finds an executable on pathEnv: on the host, or inside the job

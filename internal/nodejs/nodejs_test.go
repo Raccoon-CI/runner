@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -27,6 +28,45 @@ func fakeNode(t *testing.T, version string) []byte {
 	tw.Close()
 	gz.Close()
 	return buf.Bytes()
+}
+
+// The musl runtime takes the newest release that has a musl build for this
+// machine (the unofficial host does not build every release), downloads the
+// -musl archive, and keeps it apart from the glibc one.
+func TestMuslBinary(t *testing.T) {
+	tgz := fakeNode(t, "v24.1.0")
+	sum := sha256.Sum256(tgz)
+	file := fmt.Sprintf("node-v24.1.0-linux-%s-musl.tar.gz", Arch())
+	glibc := "linux-" + Arch()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/index.json":
+			// v24.2.0 has no musl build; v24.1.0 does.
+			fmt.Fprintf(w, `[{"version":"v24.2.0","files":["%[1]s"]},{"version":"v24.1.0","files":["%[1]s","%[1]s-musl"]}]`, glibc)
+		case "/v24.1.0/SHASUMS256.txt":
+			fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), file)
+		case "/v24.1.0/" + file:
+			w.Write(tgz)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	rt := NewMusl(filepath.Join(root, "musl"))
+	rt.BaseURL = srv.URL
+	bin, err := rt.Binary(context.Background(), "node24")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(root, "musl", "v24.1.0", "bin", "node"); bin != want {
+		t.Errorf("binary = %s, want %s", bin, want)
+	}
+	// The glibc runtime shares the parent directory and does not see the musl one.
+	if v := New(root).installed("24"); v != "" {
+		t.Errorf("glibc runtime found %q in the musl directory", v)
+	}
 }
 
 func TestBinary(t *testing.T) {
