@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"racoonci/internal/value"
+	"raccoonci/internal/value"
 )
 
 func TestCheckoutCopiesWorkingTree(t *testing.T) {

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"racoonci/internal/expr"
-	"racoonci/internal/value"
-	"racoonci/internal/workflow"
+	"raccoonci/internal/expr"
+	"raccoonci/internal/value"
+	"raccoonci/internal/workflow"
 )
 
 // scope is a list of steps being run: the job's, or a composite action's,

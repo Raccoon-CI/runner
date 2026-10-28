@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"racoonci/internal/value"
-	"racoonci/internal/workflow"
+	"raccoonci/internal/value"
+	"raccoonci/internal/workflow"
 )
 
 type recorder struct {

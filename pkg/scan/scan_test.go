@@ -7,10 +7,10 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"racoonci/internal/catalog"
-	"racoonci/internal/expr"
-	"racoonci/internal/runnerimages"
-	"racoonci/internal/workflow"
+	"raccoonci/internal/catalog"
+	"raccoonci/internal/expr"
+	"raccoonci/internal/runnerimages"
+	"raccoonci/internal/workflow"
 )
 
 var ubuntu24 = &runnerimages.Defaults{
@@ -128,6 +128,37 @@ steps:
       node-version: 20
 `, ubuntu24, nil)
 	assertDemands(t, r, "toolchain node@22.23.3 (implicit), toolchain node@20")
+}
+
+// The image's python3 is used first, then the same version is asked for by
+// name: one demand, which must not be treated as "something like it will do".
+func TestExplicitVersionPinsAnImplicitDemand(t *testing.T) {
+	r := scanSteps(t, `
+runs-on: ubuntu-latest
+steps:
+  - run: python3 --version
+  - uses: actions/setup-python@v5
+    with:
+      python-version: 3.12.3
+`, ubuntu24, nil)
+	assertDemands(t, r, "toolchain python@3.12.3 (implicit)")
+	if !r.Demands[0].Declared {
+		t.Error("the explicit setup-python must mark the demand as Declared")
+	}
+
+	// A different version stays a separate demand, and nothing is Declared.
+	r = scanSteps(t, `
+runs-on: ubuntu-latest
+steps:
+  - run: python3 --version
+  - uses: actions/setup-python@v5
+    with:
+      python-version: "3.11"
+`, ubuntu24, nil)
+	assertDemands(t, r, "toolchain python@3.12.3 (implicit), toolchain python@3.11")
+	if r.Demands[0].Declared || r.Demands[1].Declared {
+		t.Errorf("unexpected Declared: %+v", r.Demands)
+	}
 }
 
 func TestMatrixVersionAndFloatWarning(t *testing.T) {

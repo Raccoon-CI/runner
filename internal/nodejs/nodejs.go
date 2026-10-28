@@ -1,13 +1,12 @@
-// Package nodejs provides the Node.js runtimes JavaScript actions run on
-// (runs.using: node20, node24), downloaded from nodejs.org on first use and
-// verified against its SHASUMS256.txt.
+// Package nodejs knows nodejs.org: its release index and its downloads
+// (verified against SHASUMS256.txt). Runtime builds on it to provide the
+// Node.js versions JavaScript actions run on (runs.using: node20, node24),
+// and the provisioner uses it to install the Node.js a job asks for.
 package nodejs
 
 import (
 	"bufio"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -20,12 +19,109 @@ import (
 	"strings"
 	"sync"
 
-	"racoonci/internal/archive"
-	"racoonci/internal/catalog"
+	"raccoonci/internal/archive"
+	"raccoonci/internal/catalog"
 )
 
-const maxDownload = 512 << 20
+const (
+	DefaultBaseURL = "https://nodejs.org/dist"
+	maxDownload    = 512 << 20
+)
 
+// Release is one entry of nodejs.org's index.
+type Release struct {
+	Version string // with the leading v, e.g. v24.11.0
+	LTS     string // the LTS line's codename (Iron, Jod), "" if not an LTS release
+}
+
+// Index lists the releases on baseURL, newest first.
+func Index(ctx context.Context, client *http.Client, baseURL string) ([]Release, error) {
+	body, err := get(ctx, client, baseURL+"/index.json")
+	if err != nil {
+		return nil, err
+	}
+	defer body.Close()
+	var raw []struct {
+		Version string          `json:"version"`
+		LTS     json.RawMessage `json:"lts"` // false, or the codename
+	}
+	if err := json.NewDecoder(io.LimitReader(body, 16<<20)).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("nodejs.org index: %w", err)
+	}
+	out := make([]Release, len(raw))
+	for i, r := range raw {
+		out[i].Version = r.Version
+		_ = json.Unmarshal(r.LTS, &out[i].LTS) // a string for LTS releases, false otherwise
+	}
+	return out, nil
+}
+
+// Arch is nodejs.org's name for this machine's architecture.
+func Arch() string {
+	switch runtime.GOARCH {
+	case "amd64":
+		return "x64"
+	case "arm":
+		return "armv7l"
+	}
+	return runtime.GOARCH // arm64, ppc64le, s390x
+}
+
+// Fetch downloads Node.js version (with the leading v) for this machine into
+// dest, without the archive's top-level directory, so dest/bin/node exists.
+// dest only appears once the download has been verified.
+func Fetch(ctx context.Context, client *http.Client, baseURL, version, dest string) error {
+	file := fmt.Sprintf("node-%s-linux-%s.tar.gz", version, Arch())
+	want, err := checksum(ctx, client, baseURL, version, file)
+	if err != nil {
+		return err
+	}
+	body, err := get(ctx, client, fmt.Sprintf("%s/%s/%s", baseURL, version, file))
+	if err != nil {
+		return err
+	}
+	defer body.Close()
+	if err := archive.ExtractTarGzVerified(body, dest, want, maxDownload); err != nil {
+		return fmt.Errorf("%s: %w", file, err)
+	}
+	return nil
+}
+
+func checksum(ctx context.Context, client *http.Client, baseURL, version, file string) (string, error) {
+	body, err := get(ctx, client, fmt.Sprintf("%s/%s/SHASUMS256.txt", baseURL, version))
+	if err != nil {
+		return "", err
+	}
+	defer body.Close()
+	sc := bufio.NewScanner(io.LimitReader(body, 1<<20))
+	for sc.Scan() {
+		if sum, name, ok := strings.Cut(sc.Text(), "  "); ok && name == file {
+			return sum, nil
+		}
+	}
+	return "", fmt.Errorf("%s is not in SHASUMS256.txt for %s", file, version)
+}
+
+func get(ctx context.Context, client *http.Client, url string) (io.ReadCloser, error) {
+	if client == nil {
+		client = http.DefaultClient
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		resp.Body.Close()
+		return nil, fmt.Errorf("GET %s: %s", url, resp.Status)
+	}
+	return resp.Body, nil
+}
+
+// Runtime provides the Node.js JavaScript actions run on.
 type Runtime struct {
 	Dir     string // holds one directory per installed version, e.g. v24.11.0/
 	Client  *http.Client
@@ -39,7 +135,7 @@ type Runtime struct {
 }
 
 func New(dir string) *Runtime {
-	return &Runtime{Dir: dir, Client: http.DefaultClient, BaseURL: "https://nodejs.org/dist"}
+	return &Runtime{Dir: dir, Client: http.DefaultClient, BaseURL: DefaultBaseURL}
 }
 
 // Binary returns the node binary for runs.using, downloading the newest
@@ -67,7 +163,7 @@ func (rt *Runtime) Binary(ctx context.Context, using string) (string, error) {
 		return "", err
 	}
 	if _, err := os.Stat(rt.binary(version)); err != nil {
-		if err := rt.install(ctx, version); err != nil {
+		if err := Fetch(ctx, rt.Client, rt.BaseURL, version, filepath.Join(rt.Dir, version)); err != nil {
 			return "", err
 		}
 	}
@@ -88,16 +184,9 @@ func (rt *Runtime) binary(version string) string {
 
 // latest returns the newest release of a major version, e.g. "v24.11.0".
 func (rt *Runtime) latest(ctx context.Context, major string) (string, error) {
-	body, err := rt.get(ctx, rt.BaseURL+"/index.json")
+	releases, err := Index(ctx, rt.Client, rt.BaseURL)
 	if err != nil {
 		return "", err
-	}
-	defer body.Close()
-	var releases []struct {
-		Version string `json:"version"`
-	}
-	if err := json.NewDecoder(io.LimitReader(body, 16<<20)).Decode(&releases); err != nil {
-		return "", fmt.Errorf("nodejs.org index: %w", err)
 	}
 	for _, r := range releases { // newest first
 		if strings.HasPrefix(r.Version, "v"+major+".") {
@@ -141,83 +230,4 @@ func parseVersion(s string) []int {
 		out[i] = n
 	}
 	return out
-}
-
-func arch() string {
-	switch runtime.GOARCH {
-	case "amd64":
-		return "x64"
-	case "arm":
-		return "armv7l"
-	}
-	return runtime.GOARCH // arm64, ppc64le, s390x
-}
-
-func (rt *Runtime) install(ctx context.Context, version string) error {
-	file := fmt.Sprintf("node-%s-linux-%s.tar.gz", version, arch())
-	want, err := rt.checksum(ctx, version, file)
-	if err != nil {
-		return err
-	}
-	body, err := rt.get(ctx, fmt.Sprintf("%s/%s/%s", rt.BaseURL, version, file))
-	if err != nil {
-		return err
-	}
-	defer body.Close()
-
-	if err := os.MkdirAll(rt.Dir, 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.MkdirTemp(rt.Dir, ".download-")
-	if err != nil {
-		return err
-	}
-	defer os.RemoveAll(tmp)
-	h := sha256.New()
-	tee := io.TeeReader(io.LimitReader(body, maxDownload), h)
-	if err := archive.ExtractTarGz(tee, tmp, maxDownload); err != nil {
-		return fmt.Errorf("unpack %s: %w", file, err)
-	}
-	if _, err := io.Copy(io.Discard, tee); err != nil { // the rest of the gzip stream
-		return err
-	}
-	if got := hex.EncodeToString(h.Sum(nil)); got != want {
-		return fmt.Errorf("%s: SHA-256 is %s, SHASUMS256.txt says %s", file, got, want)
-	}
-	dest := filepath.Join(rt.Dir, version)
-	if err := os.RemoveAll(dest); err != nil {
-		return err
-	}
-	return os.Rename(tmp, dest)
-}
-
-func (rt *Runtime) checksum(ctx context.Context, version, file string) (string, error) {
-	body, err := rt.get(ctx, fmt.Sprintf("%s/%s/SHASUMS256.txt", rt.BaseURL, version))
-	if err != nil {
-		return "", err
-	}
-	defer body.Close()
-	sc := bufio.NewScanner(io.LimitReader(body, 1<<20))
-	for sc.Scan() {
-		if sum, name, ok := strings.Cut(sc.Text(), "  "); ok && name == file {
-			return sum, nil
-		}
-	}
-	return "", fmt.Errorf("%s is not in SHASUMS256.txt for %s", file, version)
-}
-
-func (rt *Runtime) get(ctx context.Context, url string) (io.ReadCloser, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := rt.Client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode != http.StatusOK {
-		resp.Body.Close()
-		return nil, fmt.Errorf("GET %s: %s", url, resp.Status)
-	}
-	return resp.Body, nil
 }

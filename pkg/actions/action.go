@@ -11,8 +11,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"racoonci/internal/value"
-	"racoonci/internal/workflow"
+	"raccoonci/internal/value"
+	"raccoonci/internal/workflow"
 )
 
 type Action struct {

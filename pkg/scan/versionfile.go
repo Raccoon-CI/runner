@@ -9,7 +9,7 @@ import (
 	"path"
 	"strings"
 
-	"racoonci/internal/catalog"
+	"raccoonci/internal/catalog"
 )
 
 // readVersionFile extracts the toolchain version a version file pins, the

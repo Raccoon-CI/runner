@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"racoonci/internal/archive"
+	"raccoonci/internal/archive"
 )
 
 // Ref is a `uses: owner/repo[/path]@ref` reference to an action on GitHub.

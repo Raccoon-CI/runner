@@ -1,7 +1,7 @@
 // Package scan works out what a job needs installed before it runs: the
 // toolchains setup-* actions ask for, plus tools the job uses without
 // declaring them because GitHub's Ubuntu images happen to preinstall them.
-// Racoon CI's machines run a slim Debian base, so those implicit demands
+// Raccoon CI's machines run a slim Debian base, so those implicit demands
 // must be installed (at the image's default versions) or the job breaks.
 //
 // Scanning is static and best-effort: it never fails a job, and anything it
@@ -20,10 +20,10 @@ import (
 
 	"mvdan.cc/sh/v3/syntax"
 
-	"racoonci/internal/catalog"
-	"racoonci/internal/expr"
-	"racoonci/internal/runnerimages"
-	"racoonci/internal/workflow"
+	"raccoonci/internal/catalog"
+	"raccoonci/internal/expr"
+	"raccoonci/internal/runnerimages"
+	"raccoonci/internal/workflow"
 )
 
 type Kind = catalog.Kind
@@ -43,6 +43,10 @@ type Demand struct {
 	// Implicit means the workflow never declared it: on GitHub it only
 	// worked because the image preinstalls it.
 	Implicit bool
+	// Declared is set on an implicit demand when the workflow also asks for
+	// exactly this version by name (a later setup-* step). The job then needs
+	// that version, not just something like it.
+	Declared bool
 	Reason   string
 }
 
@@ -69,7 +73,7 @@ type Input struct {
 
 // placeholder replaces expressions that can't be evaluated yet, so scripts
 // still parse.
-const placeholder = "__racoon_expr__"
+const placeholder = "__raccoon_expr__"
 
 type scanner struct {
 	in       Input
@@ -77,7 +81,7 @@ type scanner struct {
 	res      Result
 	provided map[string]bool // set up or installed by an earlier step
 	has      map[string]bool // kind/name already demanded
-	seen     map[string]bool // kind/name/version already demanded
+	seen     map[string]int  // kind/name/version already demanded -> index in res.Demands
 	warned   map[string]bool
 	checkout bool   // the job checks out the repo
 	opaque   string // first step that runs an opaque build command
@@ -88,7 +92,7 @@ func Job(in Input) *Result {
 		in:       in,
 		provided: map[string]bool{},
 		has:      map[string]bool{},
-		seen:     map[string]bool{},
+		seen:     map[string]int{},
 		warned:   map[string]bool{},
 	}
 	if s.in.Context == nil {
@@ -124,10 +128,13 @@ func Job(in Input) *Result {
 
 func (s *scanner) add(d Demand) {
 	key := d.Kind.String() + "/" + d.Name
-	if s.seen[key+"/"+d.Version] {
+	if i, ok := s.seen[key+"/"+d.Version]; ok {
+		if !d.Implicit && s.res.Demands[i].Implicit {
+			s.res.Demands[i].Declared = true
+		}
 		return
 	}
-	s.seen[key+"/"+d.Version] = true
+	s.seen[key+"/"+d.Version] = len(s.res.Demands)
 	s.has[key] = true
 	s.res.Demands = append(s.res.Demands, d)
 }
@@ -325,7 +332,7 @@ func (s *scanner) skipWrappers(args []string) []string {
 }
 
 // checkCompat applies the catalog's warnings about commands that behave
-// differently on Racoon CI's machines than on GitHub's Ubuntu images.
+// differently on Raccoon CI's machines than on GitHub's Ubuntu images.
 func (s *scanner) checkCompat(where, cmd string, args []string) {
 	image := ""
 	if s.in.Image != nil {

@@ -12,7 +12,7 @@ import (
 	"syscall"
 	"time"
 
-	"racoonci/internal/expr"
+	"raccoonci/internal/expr"
 )
 
 const (

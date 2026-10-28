@@ -7,10 +7,10 @@ import (
 	"slices"
 	"strings"
 
-	"racoonci/internal/actions"
-	"racoonci/internal/expr"
-	"racoonci/internal/value"
-	"racoonci/internal/workflow"
+	"raccoonci/internal/actions"
+	"raccoonci/internal/expr"
+	"raccoonci/internal/value"
+	"raccoonci/internal/workflow"
 )
 
 func isRemote(uses string) bool {

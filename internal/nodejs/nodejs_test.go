@@ -32,7 +32,7 @@ func fakeNode(t *testing.T, version string) []byte {
 func TestBinary(t *testing.T) {
 	tgz := fakeNode(t, "v24.2.0")
 	sum := sha256.Sum256(tgz)
-	file := fmt.Sprintf("node-v24.2.0-linux-%s.tar.gz", arch())
+	file := fmt.Sprintf("node-v24.2.0-linux-%s.tar.gz", Arch())
 	var corrupt atomic.Bool
 	var downloads atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

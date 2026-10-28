@@ -6,17 +6,20 @@ package engine
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
-	"racoonci/internal/catalog"
-	"racoonci/internal/expr"
-	"racoonci/internal/platform"
-	"racoonci/internal/runner"
-	"racoonci/internal/runnerimages"
-	"racoonci/internal/value"
-	"racoonci/internal/workflow"
+	"raccoonci/internal/catalog"
+	"raccoonci/internal/expr"
+	"raccoonci/internal/platform"
+	"raccoonci/internal/provision"
+	"raccoonci/internal/runner"
+	"raccoonci/internal/runnerimages"
+	"raccoonci/internal/value"
+	"raccoonci/internal/workflow"
 )
 
 type Options struct {
@@ -28,6 +31,12 @@ type Options struct {
 	Images  *runnerimages.Snapshot
 	// Catalog defaults to catalog.Default().
 	Catalog *catalog.Catalog
+	// Provision, if set, installs what each job instance needs (as found by
+	// scanning it) before it runs. Repo is the repository at the
+	// triggering commit, for the scan to read version files from; use an
+	// os.OpenRoot FS for untrusted repos.
+	Provision *provision.Provisioner
+	Repo      fs.FS
 
 	// WorkDir gets one directory per job instance.
 	WorkDir string
@@ -366,6 +375,9 @@ func (e *engine) runInstance(ctx context.Context, j *workflow.Job, combo, strate
 	cfg.WorkDir = dir
 	if cfg.Catalog == nil {
 		cfg.Catalog = cat
+	}
+	if e.opts.Provision != nil {
+		cfg.PrependPath = append(slices.Clone(cfg.PrependPath), e.provision(ctx, name, j, ectx, image)...)
 	}
 	r, err := runner.Run(ctx, cfg, &runner.Job{
 		Workflow: e.w,

@@ -1,4 +1,4 @@
-// Package local supports `racoonci run`: running a workflow from a local
+// Package local supports `raccoonci run`: running a workflow from a local
 // checkout on this machine. It builds the github context from git, replaces
 // actions/checkout of the repository with a copy of the working tree (so
 // uncommitted changes are tested), and prints run events to a terminal.
@@ -19,9 +19,9 @@ import (
 	"sync"
 	"time"
 
-	"racoonci/internal/expr"
-	"racoonci/internal/runner"
-	"racoonci/internal/value"
+	"raccoonci/internal/expr"
+	"raccoonci/internal/runner"
+	"raccoonci/internal/value"
 )
 
 func git(dir string, args ...string) string {

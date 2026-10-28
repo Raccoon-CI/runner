@@ -2,17 +2,22 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"racoonci/internal/runner"
-	"racoonci/internal/value"
-	"racoonci/internal/workflow"
+	"raccoonci/internal/provision"
+	"raccoonci/internal/runner"
+	"raccoonci/internal/runnerimages"
+	"raccoonci/internal/value"
+	"raccoonci/internal/workflow"
 )
 
 type log struct {
@@ -214,6 +219,102 @@ jobs:
 	}
 	if got["lenient (ubuntu-latest)"] != runner.Success {
 		t.Errorf("fail-fast: false should keep the Linux instance: %v", got)
+	}
+}
+
+// fakeToolchain "installs" a node that prints which version it is.
+type fakeToolchain struct {
+	installs atomic.Int32
+	fail     bool
+}
+
+func (f *fakeToolchain) Resolve(_ context.Context, spec string) (string, error) { return spec, nil }
+func (f *fakeToolchain) BinDirs() []string                                      { return []string{"bin"} }
+func (f *fakeToolchain) Install(_ context.Context, version, dest string) error {
+	f.installs.Add(1)
+	if f.fail {
+		return errors.New("mirror is down")
+	}
+	if err := os.MkdirAll(filepath.Join(dest, "bin"), 0o755); err != nil {
+		return err
+	}
+	script := "#!/bin/sh\necho fake-node " + version + "\n"
+	return os.WriteFile(filepath.Join(dest, "bin", "node"), []byte(script), 0o755)
+}
+
+func (l *log) has(kind runner.EventKind, substr string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, e := range l.events {
+		if e.Kind == kind && strings.Contains(e.Text, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+func provisionOpts(t *testing.T, inst *fakeToolchain) Options {
+	images, err := runnerimages.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return Options{
+		Images: images,
+		Provision: &provision.Provisioner{
+			ToolCache:  t.TempDir(),
+			Installers: map[string]provision.Installer{"node": inst},
+			LookPath:   func(string) (string, error) { return "/usr/bin/found", nil },
+		},
+	}
+}
+
+func TestProvisionsWhatTheJobUsesWithoutSettingUp(t *testing.T) {
+	inst := &fakeToolchain{}
+	opts := provisionOpts(t, inst)
+	version := opts.Images.ForLabel(nil, "ubuntu-latest").Tools["node"]
+
+	res, l := runWorkflow(t, `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: node --version
+`, opts)
+	if res.Conclusion != runner.Success {
+		t.Fatalf("conclusion %s: %v", res.Conclusion, l.jobs())
+	}
+	// GitHub's image has node preinstalled, so the job just calls it. The
+	// provisioned one must win over whatever node is on this machine.
+	want := []string{"installed node " + version, "fake-node " + version}
+	if got := l.output("build"); !slices.Equal(got, want) {
+		t.Errorf("output:\n got %q\nwant %q", got, want)
+	}
+	if inst.installs.Load() != 1 {
+		t.Errorf("%d installs", inst.installs.Load())
+	}
+}
+
+func TestProvisioningFailuresAreWarningsNotFailures(t *testing.T) {
+	inst := &fakeToolchain{fail: true}
+	res, l := runWorkflow(t, `
+on: push
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          node --version > /dev/null 2>&1 || true
+          echo job ran
+`, provisionOpts(t, inst))
+	if res.Conclusion != runner.Success {
+		t.Fatalf("a failed install must not fail the job: %s", res.Conclusion)
+	}
+	if !l.has(runner.Warning, "mirror is down") || !l.has(runner.Warning, "node") {
+		t.Errorf("the failure should be shown as a warning: %+v", l.events)
+	}
+	if got := l.output("build"); !slices.Equal(got, []string{"job ran"}) {
+		t.Errorf("the job should have run normally: %q", got)
 	}
 }
 

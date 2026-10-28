@@ -20,12 +20,12 @@ import (
 	"syscall"
 	"time"
 
-	"racoonci/internal/actions"
-	"racoonci/internal/catalog"
-	"racoonci/internal/expr"
-	"racoonci/internal/runnerimages"
-	"racoonci/internal/value"
-	"racoonci/internal/workflow"
+	"raccoonci/internal/actions"
+	"raccoonci/internal/catalog"
+	"raccoonci/internal/expr"
+	"raccoonci/internal/runnerimages"
+	"raccoonci/internal/value"
+	"raccoonci/internal/workflow"
 )
 
 type Conclusion string
@@ -76,6 +76,10 @@ type Config struct {
 	// repository, e.g. to copy a local working tree. It reports false to let
 	// the real action run.
 	Checkout func(ctx context.Context, workspace string, with value.Object) (bool, error)
+	// PrependPath directories go in front of every step's PATH, as if an
+	// earlier step had added them to $GITHUB_PATH: where the provisioner put
+	// the toolchains the job uses without setting them up.
+	PrependPath []string
 	// ServiceEnv is added to every step's environment: the URLs and tokens of
 	// the runtime services (artifacts, cache, OIDC).
 	ServiceEnv map[string]string
@@ -162,7 +166,7 @@ func Run(ctx context.Context, cfg Config, job *Job) (*Result, error) {
 	if cfg.Catalog == nil {
 		cfg.Catalog = catalog.Default()
 	}
-	r := &jobRun{cfg: cfg, job: job, actionIDs: map[string]int{}, remoteActs: map[string]string{}}
+	r := &jobRun{cfg: cfg, job: job, actionIDs: map[string]int{}, remoteActs: map[string]string{}, path: slices.Clone(cfg.PrependPath)}
 	if err := r.setupDirs(); err != nil {
 		return nil, err
 	}

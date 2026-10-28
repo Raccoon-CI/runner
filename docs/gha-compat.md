@@ -19,7 +19,7 @@ Key detail (`packages/cache/src/internal/config.ts`): when `GITHUB_SERVER_URL` i
 
 ## Who has implemented what
 
-| Capability | act | Gitea | Racoon CI plan |
+| Capability | act | Gitea | Raccoon CI plan |
 | --- | --- | --- | --- |
 | Artifact v3 | ✅ `pkg/artifacts/server.go` | ✅ `artifacts.go` | Implement |
 | Artifact v4 (Twirp) | ✅ `pkg/artifacts/artifacts_v4.go` | ✅ `artifactsv4.go` | Implement (current `upload-artifact@v4+` uses it) |
@@ -30,10 +30,10 @@ Key detail (`packages/cache/src/internal/config.ts`): when `GITHUB_SERVER_URL` i
 
 ## Things that are hard or impossible to replicate
 
-- **`ubuntu-latest`'s preinstalled software** (the actions/runner-images image). This is the biggest real-world compatibility gap. act works around it with large community images. Racoon provisions on demand instead (see "On-demand environments" below).
+- **`ubuntu-latest`'s preinstalled software** (the actions/runner-images image). This is the biggest real-world compatibility gap. act works around it with large community images. Raccoon provisions on demand instead (see "On-demand environments" below).
 - **`attest-build-provenance`**: the public Sigstore instance only trusts GitHub's OIDC issuer.
 - **`deploy-pages`**: the GitHub Pages API verifies GitHub's own OIDC tokens.
-- **Cloud OIDC trust** (AWS/GCP): this works, but users must change their cloud-side trust config from `token.actions.githubusercontent.com` to the Racoon issuer. The YAML doesn't change.
+- **Cloud OIDC trust** (AWS/GCP): this works, but users must change their cloud-side trust config from `token.actions.githubusercontent.com` to the Raccoon issuer. The YAML doesn't change.
 
 ## Reuse notes
 
@@ -41,14 +41,14 @@ act and Gitea are MIT-licensed, so their code can be referenced or reused with a
 
 ## On-demand environments (toolcache prefill)
 
-`@actions/tool-cache` `find()` (`packages/tool-cache/src/tool-cache.ts`) checks for `${RUNNER_TOOL_CACHE}/<tool>/<version>/<arch>` and a sibling `<arch>.complete` marker. If both exist, the `setup-*` action uses that copy and skips the download. So Racoon can pre-install exactly the versions a workflow asks for, in the same layout, without modifying any action.
+`@actions/tool-cache` `find()` (`packages/tool-cache/src/tool-cache.ts`) checks for `${RUNNER_TOOL_CACHE}/<tool>/<version>/<arch>` and a sibling `<arch>.complete` marker. If both exist, the `setup-*` action uses that copy and skips the download. So Raccoon can pre-install exactly the versions a workflow asks for, in the same layout, without modifying any action.
 
 Where demands come from (they must be resolved per job, after matrix expansion):
 - `with:` inputs of `setup-*` actions: `node-version`, `go-version`, `python-version`, `java-version`, ...
 - Version files those inputs point to: `node-version-file: .nvmrc`, `go-version-file: go.mod`, `.python-version`, `.tool-versions`. These need the repo at the triggering commit.
 - Implicit demands are invisible to a static scan: `run: make` assumes gcc, `jq`, `docker` etc. exist on `ubuntu-latest`. Cover the common ones with a slim base image, detect others heuristically from `run:` scripts, and learn from `command not found` failures.
 
-Decision (2026-10-28): **do not bake toolchains into snapshots.** Snapshots for every demand combination get large and multiply, and downloading from the public internet at job start is fast enough to feel instant. Snapshots/base images hold only the slim base. Before the job starts, Racoon downloads each resolved demand into the toolcache layout, in parallel. Version-file demands are fetched right after checkout.
+Decision (2026-10-28): **do not bake toolchains into snapshots.** Snapshots for every demand combination get large and multiply, and downloading from the public internet at job start is fast enough to feel instant. Snapshots/base images hold only the slim base. Before the job starts, Raccoon downloads each resolved demand into the toolcache layout, in parallel. Version-file demands are fetched right after checkout.
 
 The scanner is **in the MVP** (decided 2026-10-28). Its main job is catching careless workflows: on `ubuntu-latest` they quietly rely on preinstalled tools and never declare a dependency. They would break on our slim base. Detection sources, strongest first:
 1. Explicit `setup-*` inputs and the version files they reference.
