@@ -104,8 +104,13 @@ func (f *fakeNode) provisioner(t *testing.T) *Provisioner {
 	return &Provisioner{
 		ToolCache:  t.TempDir(),
 		Installers: map[string]Installer{"node": NewNode(f.srv.Client(), f.srv.URL)},
+		LookPath:   notInstalled,
 	}
 }
+
+// notInstalled is a LookPath for a machine with nothing on it, so a test does
+// not depend on the Node.js or Go of the machine running it.
+func notInstalled(string) (string, error) { return "", errors.New("not installed") }
 
 func toolchain(name, version string, implicit bool) scan.Demand {
 	return scan.Demand{Kind: catalog.Toolchain, Name: name, Version: version, Implicit: implicit}
@@ -299,7 +304,7 @@ func TestGoInstaller(t *testing.T) {
 		}
 	}
 
-	p := &Provisioner{ToolCache: t.TempDir(), Installers: map[string]Installer{"go": inst}}
+	p := &Provisioner{ToolCache: t.TempDir(), Installers: map[string]Installer{"go": inst}, LookPath: notInstalled}
 	res := p.Ensure(context.Background(), []scan.Demand{toolchain("go", "1.24", true)})
 	if it := res.Items[0]; it.Status != Installed || it.Detail != "go 1.24.13" {
 		t.Fatalf("%+v", it)
@@ -320,7 +325,7 @@ func TestGoInstaller(t *testing.T) {
 }
 
 func TestToolchainsWeCannotInstall(t *testing.T) {
-	p := &Provisioner{ToolCache: t.TempDir()}
+	p := &Provisioner{ToolCache: t.TempDir(), LookPath: notInstalled}
 	res := p.Ensure(context.Background(), []scan.Demand{
 		toolchain("python", "3.12", false),  // its setup action will download it
 		toolchain("python", "3.12.3", true), // nothing else will provide this one

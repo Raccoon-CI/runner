@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"slices"
 	"sync"
+	"time"
 
 	"raccoonci/internal/catalog"
 	"raccoonci/internal/scan"
@@ -87,6 +88,9 @@ type Provisioner struct {
 	Parallel int
 	// LookPath finds a command on PATH; exec.LookPath if nil.
 	LookPath func(string) (string, error)
+	// Probe runs a command and returns its output, to read the version of a
+	// toolchain already on the machine; run directly if nil.
+	Probe func(ctx context.Context, command string, args []string) (string, error)
 
 	locks sync.Map // "<tool>@<version>" -> *sync.Mutex
 }
@@ -219,6 +223,12 @@ func (p *Provisioner) ensureToolchain(ctx context.Context, it *Item) {
 			return
 		}
 	}
+	// A copy that came with the machine (a provider's template ships Go,
+	// Node.js...) is used as it is rather than downloaded again.
+	if v, ok := p.adoptSystem(ctx, name, def, specs); ok {
+		it.Status, it.Detail, it.BinDirs = Cached, fmt.Sprintf("%s %s (already on this machine)", d.Name, v), binDirs(v)
+		return
+	}
 	var version string
 	var firstErr error
 	for i, spec := range specs {
@@ -253,9 +263,90 @@ func (p *Provisioner) versionDir(name, version string) string {
 	return filepath.Join(p.ToolCache, name, version)
 }
 
+// complete says whether version is fully in the tool cache. The install
+// directory is stat'ed too, so an adopted copy whose original has been removed
+// (a symlink to nowhere) does not count.
 func (p *Provisioner) complete(name, version string) bool {
-	_, err := os.Stat(filepath.Join(p.versionDir(name, version), Arch()+".complete"))
+	dir := p.versionDir(name, version)
+	if _, err := os.Stat(filepath.Join(dir, Arch()+".complete")); err != nil {
+		return false
+	}
+	_, err := os.Stat(filepath.Join(dir, Arch()))
 	return err == nil
+}
+
+func (p *Provisioner) runProbe(ctx context.Context, command string, args []string) (string, error) {
+	if p.Probe != nil {
+		return p.Probe(ctx, command, args)
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, command, args...).Output()
+	return string(out), err
+}
+
+// adoptSystem looks for a copy of the toolchain that is already installed on
+// this machine and satisfies one of specs. If there is one it is linked into
+// the tool cache, where the setup-* actions look, and its version is returned.
+// What to run and how to read the version comes from the catalog's probe; a
+// toolchain without one is never adopted. Anything that does not look right
+// (the command is not in a bin directory, the version does not parse) is
+// "no copy", never an error.
+func (p *Provisioner) adoptSystem(ctx context.Context, name string, def *catalog.ToolchainDef, specs []string) (string, bool) {
+	if def == nil || def.Probe == nil {
+		return "", false
+	}
+	pr := def.Probe
+	path, err := p.lookPath(pr.Command)
+	if err != nil {
+		return "", false
+	}
+	real, err := filepath.EvalSymlinks(path)
+	if err != nil || filepath.Base(filepath.Dir(real)) != "bin" {
+		return "", false
+	}
+	out, err := p.runProbe(ctx, real, pr.Args)
+	if err != nil {
+		return "", false
+	}
+	version, ok := pr.Version(out)
+	if !ok {
+		return "", false
+	}
+	if _, ok := semver.Parse(version); !ok {
+		return "", false
+	}
+	matched := false
+	for _, spec := range specs {
+		if _, err := semver.Pick(spec, []string{version}); err == nil {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return "", false
+	}
+
+	root := filepath.Dir(filepath.Dir(real)) // <root>/bin/<command>
+	mu := p.lock(name + "@" + version)
+	mu.Lock()
+	defer mu.Unlock()
+	if p.complete(name, version) {
+		return version, true
+	}
+	dir := p.versionDir(name, version)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", false
+	}
+	link := filepath.Join(dir, Arch())
+	os.Remove(link) // a stale link; a real directory is left alone and fails the symlink
+	if err := os.Symlink(root, link); err != nil {
+		return "", false
+	}
+	if err := os.WriteFile(filepath.Join(dir, Arch()+".complete"), nil, 0o644); err != nil {
+		return "", false
+	}
+	return version, true
 }
 
 // cachedVersions lists the complete installs of a tool in the tool cache.
