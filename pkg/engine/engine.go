@@ -336,6 +336,17 @@ func (e *engine) runInstance(ctx context.Context, j *workflow.Job, combo, strate
 	if v, err := expr.EvalValue(j.ContinueOnError, ectx); err == nil {
 		res.continueOnError = expr.Truthy(v)
 	}
+	// A run that cannot happen here fails at once, without waiting for a slot
+	// behind runs that can (unless fail-fast has already cancelled it).
+	runsOn, err := expr.EvalValue(j.RunsOn, ectx)
+	if err != nil {
+		return fail("runs-on: %v", err)
+	}
+	cat := e.opts.Catalog
+	if os := platform.FromRunsOn(cat, runsOn); os != "" && !cat.OSAvailable(os) && ctx.Err() == nil {
+		return fail("%s", cat.OSUnavailable(os))
+	}
+
 	select {
 	case e.sem <- struct{}{}:
 		defer func() { <-e.sem }()
@@ -350,14 +361,6 @@ func (e *engine) runInstance(ctx context.Context, j *workflow.Job, combo, strate
 		return res
 	}
 
-	runsOn, err := expr.EvalValue(j.RunsOn, ectx)
-	if err != nil {
-		return fail("runs-on: %v", err)
-	}
-	cat := e.opts.Catalog
-	if os := platform.FromRunsOn(cat, runsOn); os != "" && !cat.OSAvailable(os) {
-		return fail("%s", cat.OSUnavailable(os))
-	}
 	var image *runnerimages.Defaults
 	if e.opts.Images != nil {
 		for _, l := range platform.Labels(runsOn) {

@@ -222,6 +222,57 @@ jobs:
 	}
 }
 
+// An instance for an OS we don't have fails at once; it does not queue for a
+// slot behind instances that can run. Instances take slots in no fixed order,
+// so there are enough of them that some would queue behind the slow job.
+func TestUnavailableOSDoesNotWaitForASlot(t *testing.T) {
+	start := time.Now()
+	var mu sync.Mutex
+	var macDone time.Duration
+	w, err := workflow.Parse([]byte(`
+on: push
+jobs:
+  slow:
+    runs-on: ubuntu-latest
+    steps:
+      - run: sleep 3
+  mac:
+    runs-on: macos-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        n: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30]
+    steps:
+      - run: echo never
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Run(context.Background(), w, Options{
+		WorkDir:     t.TempDir(),
+		Github:      value.Object{{Key: "repository", Value: "octo/hello"}},
+		MaxParallel: 1,
+		Runner: runner.Config{
+			BaseEnv: []string{"PATH=" + os.Getenv("PATH")},
+			OnEvent: func(e runner.Event) {
+				if e.Kind == runner.JobFinished && strings.HasPrefix(e.Job, "mac") {
+					mu.Lock()
+					macDone = max(macDone, time.Since(start))
+					mu.Unlock()
+				}
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if macDone == 0 || macDone > time.Second {
+		t.Errorf("the last macOS instance was reported after %s; none should wait for the 3 s job holding the only slot", macDone)
+	}
+}
+
 // fakeToolchain "installs" a node that prints which version it is.
 type fakeToolchain struct {
 	installs atomic.Int32
