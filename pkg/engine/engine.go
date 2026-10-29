@@ -47,6 +47,10 @@ type Options struct {
 	Jobs []string
 	// MaxParallel caps how many job instances run at once (default 1).
 	MaxParallel int
+	// Unaffected, if set, is asked for each job whose own `if:` allows it to
+	// run. Returning true leaves the job out because the changes do not
+	// concern it, with the reason. Jobs that need it see it as succeeded.
+	Unaffected func(j *workflow.Job) (reason string, skip bool)
 	// Remote, if set, runs each job instance somewhere else (on another
 	// machine) instead of here, and returns how it ended. It is called once
 	// the instance holds a MaxParallel slot. The events of the instance reach
@@ -95,6 +99,10 @@ type JobResult struct {
 	ID         string
 	Conclusion runner.Conclusion
 	Outputs    value.Object
+	// Unchanged is set, with the reason, for a job that was left out because
+	// nothing it depends on changed (Options.Unaffected). Its Conclusion is
+	// Success, so jobs that need it go on.
+	Unchanged string
 }
 
 type Result struct {
@@ -267,6 +275,16 @@ func (e *engine) runJob(ctx context.Context, j *workflow.Job) *JobResult {
 	if !ok {
 		e.emit(runner.Event{Kind: runner.JobFinished, Job: j.ID, Conclusion: runner.Skipped})
 		return res
+	}
+	if e.opts.Unaffected != nil {
+		if reason, skip := e.opts.Unaffected(j); skip {
+			// Not run, but not a failure either: a job that depends on this one
+			// sees it as succeeded, as if it had run on code that did not change.
+			e.emit(runner.Event{Kind: runner.Notice, Job: j.ID, Text: "not run: " + reason})
+			e.emit(runner.Event{Kind: runner.JobFinished, Job: j.ID, Conclusion: runner.Skipped})
+			res.Conclusion, res.Unchanged = runner.Success, reason
+			return res
+		}
 	}
 	if j.Uses != "" {
 		return fail("calling reusable workflows (%s) isn't supported yet", j.Uses)

@@ -211,6 +211,47 @@ func TestRemoteErrorFailsTheInstance(t *testing.T) {
 	}
 }
 
+// A job left out because the changes do not concern it counts as succeeded for
+// the jobs that need it, and nothing of it runs.
+func TestUnaffectedJobIsLeftOutAndItsDependentsGoOn(t *testing.T) {
+	res, l := runWorkflow(t, `
+on: push
+jobs:
+  front:
+    runs-on: ubuntu-latest
+    steps: [{run: 'echo front ran'}]
+  back:
+    runs-on: ubuntu-latest
+    steps: [{run: 'echo back ran'}]
+  deploy:
+    needs: [front, back]
+    runs-on: ubuntu-latest
+    steps: [{run: 'echo deploy after ${{ needs.front.result }} and ${{ needs.back.result }}'}]
+`, Options{Unaffected: func(j *workflow.Job) (string, bool) {
+		if j.ID == "front" {
+			return "nothing it depends on changed", true
+		}
+		return "", false
+	}})
+	if res.Conclusion != runner.Success {
+		t.Fatalf("conclusion %s: %v", res.Conclusion, l.jobs())
+	}
+	if got := l.output("front"); len(got) != 0 {
+		t.Errorf("the unaffected job ran: %q", got)
+	}
+	if !l.has(runner.Notice, "not run: nothing it depends on changed") {
+		t.Errorf("no notice: %+v", l.events)
+	}
+	if got := l.output("deploy"); !slices.Equal(got, []string{"deploy after success and success"}) {
+		t.Errorf("deploy: %q", got)
+	}
+	for _, j := range res.Jobs {
+		if (j.ID == "front") != (j.Unchanged != "") {
+			t.Errorf("%s: Unchanged = %q", j.ID, j.Unchanged)
+		}
+	}
+}
+
 func TestFailurePropagation(t *testing.T) {
 	res, l := runWorkflow(t, `
 on: push
