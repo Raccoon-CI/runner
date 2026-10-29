@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 
+	"raccoonci/internal/actions"
 	"raccoonci/internal/expr"
 	"raccoonci/internal/provision"
 	"raccoonci/internal/runner"
@@ -16,6 +17,16 @@ const (
 	provisionFailed = provision.Failed
 )
 
+// actionResolver lets the scan look inside third-party actions. The runner
+// would download them for the job anyway, and the store shares one download
+// per action, so this costs nothing extra; nil without a store.
+func (e *engine) actionResolver(ctx context.Context) func(string) (*actions.Action, bool) {
+	if e.opts.Runner.Actions == nil {
+		return nil
+	}
+	return e.opts.Runner.Actions.Lookup(ctx)
+}
+
 // provision scans a job instance for what it needs, provides it, and
 // returns the directories to put in front of the job's PATH. Nothing here
 // fails a job: the scan is a heuristic, so problems are reported as
@@ -28,6 +39,7 @@ func (e *engine) provision(ctx context.Context, name string, j *workflow.Job, ec
 		Image:    image,
 		Repo:     e.opts.Repo,
 		Catalog:  e.opts.Catalog,
+		Action:   e.actionResolver(ctx),
 	})
 	if len(needs.Demands) == 0 && len(needs.Warnings) == 0 {
 		return nil

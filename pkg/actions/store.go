@@ -96,6 +96,25 @@ func NewStore(dir, token string) *Store {
 	}
 }
 
+// Lookup returns a function that reads the metadata of the action a `uses:`
+// reference (owner/repo[/path]@ref) names, downloading it if needed. It is
+// what the scan uses to look inside actions; false means it could not be
+// had (bad reference, network, no action.yml).
+func (s *Store) Lookup(ctx context.Context) func(uses string) (*Action, bool) {
+	return func(uses string) (*Action, bool) {
+		ref, err := ParseRef(uses)
+		if err != nil {
+			return nil, false
+		}
+		dir, err := s.Fetch(ctx, ref)
+		if err != nil {
+			return nil, false
+		}
+		a, err := Load(filepath.Join(dir, filepath.FromSlash(ref.Path)))
+		return a, err == nil
+	}
+}
+
 // Fetch downloads the repository r points into and returns its directory.
 // Concurrent calls for the same repository and version share one download.
 func (s *Store) Fetch(ctx context.Context, r Ref) (string, error) {

@@ -5,7 +5,8 @@
 // must be installed (at the image's default versions) or the job breaks.
 //
 // Scanning is static and best-effort: it never fails a job, and anything it
-// can't see (local actions, scripts in the repo) is caught at run time.
+// can't see (scripts in the repo, actions that can't be downloaded) is caught
+// at run time.
 //
 // What commands, actions and files mean comes from package catalog; this
 // package only knows how to find them in a workflow.
@@ -14,15 +15,18 @@ package scan
 import (
 	"fmt"
 	"io/fs"
+	"maps"
 	"path"
 	"slices"
 	"strings"
 
 	"mvdan.cc/sh/v3/syntax"
 
+	"raccoonci/internal/actions"
 	"raccoonci/internal/catalog"
 	"raccoonci/internal/expr"
 	"raccoonci/internal/runnerimages"
+	"raccoonci/internal/value"
 	"raccoonci/internal/workflow"
 )
 
@@ -69,6 +73,11 @@ type Input struct {
 	Repo fs.FS
 	// Catalog defaults to catalog.Default().
 	Catalog *catalog.Catalog
+	// Action, if set, returns the metadata of the remote action a `uses:`
+	// reference names (owner/repo[/path]@ref), or false if it can't. It is
+	// what lets the scan see inside composite and docker actions, which means
+	// downloading them; the scan never fails when it returns false.
+	Action func(uses string) (*actions.Action, bool)
 }
 
 // placeholder replaces expressions that can't be evaluated yet, so scripts
@@ -83,8 +92,9 @@ type scanner struct {
 	has      map[string]bool // kind/name already demanded
 	seen     map[string]int  // kind/name/version already demanded -> index in res.Demands
 	warned   map[string]bool
-	checkout bool   // the job checks out the repo
-	opaque   string // first step that runs an opaque build command
+	stack    []string // composite actions being scanned, outermost first
+	checkout bool     // the job checks out the repo
+	opaque   string   // first step that runs an opaque build command
 }
 
 func Job(in Input) *Result {
@@ -153,22 +163,121 @@ func (s *scanner) uses(where string, st *workflow.Step) {
 		return
 	}
 	if strings.HasPrefix(ref, "./") {
-		return // a local action; its contents are only known after checkout
+		s.inside(where, ref, st)
+		return
 	}
 	name, at, _ := strings.Cut(ref, "@")
 	name = strings.ToLower(name)
 	a := s.cat.Action(name)
 	switch {
-	case a == nil:
-	case a.Checkout:
+	case a != nil && a.Checkout:
 		s.checkout = true
-	case a.NeedsDocker:
+	case a != nil && a.NeedsDocker:
 		s.add(Demand{Kind: Tool, Name: "docker", Reason: where + " uses " + name})
-	case a.Provides != "":
+	case a != nil && a.Provides != "":
 		s.provided[a.Provides] = true
-	case a.Setup != "":
+	case a != nil && a.Setup != "":
 		s.setup(where, name, at, a, st)
+	default:
+		s.inside(where, ref, st)
 	}
+}
+
+// maxActionDepth bounds composite actions that call composite actions.
+const maxActionDepth = 4
+
+// inside looks into an action the catalog has no special rule for: a docker
+// action needs docker, and the steps of a composite action need what any
+// other steps need (a script calling make, a nested setup-python). The
+// metadata of a remote action comes from Input.Action (it has to be
+// downloaded), that of a local one from the repository.
+func (s *scanner) inside(where, ref string, st *workflow.Step) {
+	if len(s.stack) >= maxActionDepth || slices.Contains(s.stack, ref) {
+		return
+	}
+	var act *actions.Action
+	if strings.HasPrefix(ref, "./") {
+		act = s.localAction(ref)
+	} else if s.in.Action != nil {
+		act, _ = s.in.Action(ref)
+	}
+	if act == nil {
+		return
+	}
+	switch act.Runs.Using {
+	case "docker":
+		s.add(Demand{Kind: Tool, Name: "docker", Reason: where + " runs the docker action " + ref})
+	case "composite":
+		saved := s.in.Context
+		s.in.Context = s.compositeContext(act, st)
+		s.stack = append(s.stack, ref)
+		defer func() { s.in.Context, s.stack = saved, s.stack[:len(s.stack)-1] }()
+		for i, inner := range act.Runs.Steps {
+			w := fmt.Sprintf("%s: %s step %d", where, ref, i+1)
+			// A step whose condition is false here (another OS, an input
+			// switched off) never runs; one we can't evaluate yet might.
+			if ok, err := expr.EvalCondition(inner.If, s.in.Context); err == nil && !ok {
+				continue
+			}
+			if inner.Uses != "" {
+				s.uses(w, inner)
+			} else {
+				s.run(w, inner)
+			}
+		}
+	}
+}
+
+// localAction reads ./path/action.yml from the repository.
+func (s *scanner) localAction(ref string) *actions.Action {
+	if s.in.Repo == nil {
+		return nil
+	}
+	dir := path.Clean(strings.TrimPrefix(ref, "./"))
+	if !fs.ValidPath(dir) {
+		return nil
+	}
+	for _, name := range []string{"action.yml", "action.yaml"} {
+		if b, err := readLimited(s.in.Repo, path.Join(dir, name)); err == nil {
+			if a, err := actions.Parse(b); err == nil {
+				return a
+			}
+			return nil
+		}
+	}
+	return nil
+}
+
+// compositeContext is the context the steps of a composite action see: the
+// caller's, with inputs set from the calling step's `with` (or the action's
+// defaults). An input that can't be evaluated yet is left out, so it reads as
+// null instead of leaking a placeholder into a version.
+func (s *scanner) compositeContext(act *actions.Action, st *workflow.Step) *expr.Context {
+	outer := s.in.Context
+	ctxs := maps.Clone(outer.Contexts)
+	if ctxs == nil {
+		ctxs = map[string]any{}
+	}
+	inputs := value.Object{}
+	for _, in := range act.Inputs {
+		raw, ok := st.With.Lookup(in.Name)
+		if !ok {
+			raw = in.Default
+		}
+		if raw == nil {
+			continue
+		}
+		if v, err := expr.EvalValue(raw, outer); err == nil {
+			inputs = inputs.Set(in.Name, v)
+		}
+	}
+	ctxs["inputs"] = inputs
+	// Raccoon CI's machines are Linux, whatever the workflow's runs-on says,
+	// and steps guarded by runner.os == 'Windows' or 'macOS' will not run.
+	if _, ok := ctxs["runner"]; !ok {
+		ctxs["runner"] = value.Object{{Key: "os", Value: "Linux"}, {Key: "arch", Value: "X64"}}
+	}
+	return &expr.Context{Contexts: ctxs, Status: &expr.Status{}}
 }
 
 func (s *scanner) setup(where, action, ref string, sa *catalog.ActionDef, st *workflow.Step) {

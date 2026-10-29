@@ -1,11 +1,17 @@
 package engine
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"raccoonci/internal/actions"
 	"slices"
 	"strings"
 	"sync"
@@ -422,6 +428,56 @@ jobs:
 	want := []string{"installed node " + version, "fake-node " + version}
 	if got := l.output("build"); !slices.Equal(got, want) {
 		t.Errorf("output:\n got %q\nwant %q", got, want)
+	}
+	if inst.installs.Load() != 1 {
+		t.Errorf("%d installs", inst.installs.Load())
+	}
+}
+
+// A composite action from the network calls node without setting it up. The
+// workflow itself never mentions node, so only a scan that looks inside the
+// action knows to install it.
+func TestProvisionsWhatAThirdPartyActionNeeds(t *testing.T) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	action := "name: tool\nruns:\n  using: composite\n  steps:\n    - run: node --version\n      shell: bash\n"
+	tw.WriteHeader(&tar.Header{Name: "acme-tool-abc/", Typeflag: tar.TypeDir, Mode: 0o755})
+	tw.WriteHeader(&tar.Header{Name: "acme-tool-abc/action.yml", Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(action))})
+	tw.Write([]byte(action))
+	tw.Close()
+	gz.Close()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/acme/tool/tar.gz/v1" {
+			w.Write(buf.Bytes())
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	store := actions.NewStore(t.TempDir(), "")
+	store.CodeloadBase, store.APIBase = srv.URL, srv.URL
+
+	inst := &fakeToolchain{}
+	opts := provisionOpts(t, inst)
+	version := opts.Images.ForLabel(nil, "ubuntu-latest").Tools["node"]
+	w, err := workflow.Parse([]byte("on: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: acme/tool@v1\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := &log{}
+	opts.WorkDir = t.TempDir()
+	opts.Github = value.Object{{Key: "repository", Value: "octo/hello"}}
+	opts.Runner = runner.Config{BaseEnv: []string{"PATH=" + os.Getenv("PATH")}, OnEvent: l.add, Actions: store}
+	res, err := Run(context.Background(), w, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Conclusion != runner.Success {
+		t.Fatalf("conclusion %s: %v", res.Conclusion, l.jobs())
+	}
+	if got := l.output("build"); !slices.Contains(got, "fake-node "+version) {
+		t.Errorf("the action's node was not the provisioned one: %q", got)
 	}
 	if inst.installs.Load() != 1 {
 		t.Errorf("%d installs", inst.installs.Load())
