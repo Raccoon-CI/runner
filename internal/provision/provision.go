@@ -223,6 +223,7 @@ func (p *Provisioner) ensureToolchain(ctx context.Context, it *Item) {
 	// network: a spec that a cached version satisfies is done.
 	for _, spec := range specs {
 		if v, err := semver.Pick(spec, p.cachedVersions(name)); err == nil {
+			p.touch(name, v)
 			it.Status, it.Detail, it.BinDirs = Cached, fmt.Sprintf("%s %s", d.Name, v), binDirs(v)
 			return
 		}
@@ -230,6 +231,7 @@ func (p *Provisioner) ensureToolchain(ctx context.Context, it *Item) {
 	// A copy that came with the machine (a provider's template ships Go,
 	// Node.js...) is used as it is rather than downloaded again.
 	if v, ok := p.adoptSystem(ctx, name, def, specs); ok {
+		p.touch(name, v)
 		it.Status, it.Detail, it.BinDirs = Cached, fmt.Sprintf("%s %s (already on this machine)", d.Name, v), binDirs(v)
 		return
 	}
@@ -253,6 +255,7 @@ func (p *Provisioner) ensureToolchain(ctx context.Context, it *Item) {
 	mu.Lock()
 	defer mu.Unlock()
 	if p.complete(name, version) { // another job installed it while we waited
+		p.touch(name, version)
 		it.Status, it.Detail, it.BinDirs = Cached, fmt.Sprintf("%s %s", d.Name, version), binDirs(version)
 		return
 	}
@@ -261,6 +264,13 @@ func (p *Provisioner) ensureToolchain(ctx context.Context, it *Item) {
 		return
 	}
 	it.Status, it.Detail, it.BinDirs = Installed, fmt.Sprintf("%s %s", d.Name, version), binDirs(version)
+}
+
+// touch records that a cached version was just chosen, for Prune: the
+// .complete marker's modification time is the version's last use.
+func (p *Provisioner) touch(name, version string) {
+	now := time.Now()
+	os.Chtimes(filepath.Join(p.versionDir(name, version), Arch()+".complete"), now, now)
 }
 
 func (p *Provisioner) versionDir(name, version string) string {
