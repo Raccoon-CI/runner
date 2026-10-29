@@ -271,8 +271,21 @@ func (p *Provisioner) complete(name, version string) bool {
 	if _, err := os.Stat(filepath.Join(dir, Arch()+".complete")); err != nil {
 		return false
 	}
-	_, err := os.Stat(filepath.Join(dir, Arch()))
-	return err == nil
+	arch := filepath.Join(dir, Arch())
+	if _, err := os.Stat(arch); err != nil {
+		return false
+	}
+	// A slim adopted install is a directory of links; one that points nowhere
+	// means the machine lost the tool.
+	entries, _ := os.ReadDir(filepath.Join(arch, "bin"))
+	for _, e := range entries {
+		if e.Type()&os.ModeSymlink != 0 {
+			if _, err := os.Stat(filepath.Join(arch, "bin", e.Name())); err != nil {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 func (p *Provisioner) runProbe(ctx context.Context, command string, args []string) (string, error) {
@@ -339,14 +352,66 @@ func (p *Provisioner) adoptSystem(ctx context.Context, name string, def *catalog
 		return "", false
 	}
 	link := filepath.Join(dir, Arch())
-	os.Remove(link) // a stale link; a real directory is left alone and fails the symlink
-	if err := os.Symlink(root, link); err != nil {
+	os.RemoveAll(link) // what an interrupted adoption left; the marker is not there yet
+	if p.sharesPrefix(name, root) {
+		// The root is an install prefix several tools share (/usr/local holds Go,
+		// Node.js...). Linking all of it would put the others on PATH under this
+		// toolchain's name, in front of the version another step just selected.
+		if err := slimInstall(link, root, commandsOf(name, def)); err != nil {
+			return "", false
+		}
+	} else if err := os.Symlink(root, link); err != nil {
 		return "", false
 	}
 	if err := os.WriteFile(filepath.Join(dir, Arch()+".complete"), nil, 0o644); err != nil {
 		return "", false
 	}
 	return version, true
+}
+
+func commandsOf(name string, def *catalog.ToolchainDef) []string {
+	if def != nil && len(def.Commands) > 0 {
+		return def.Commands
+	}
+	return []string{name}
+}
+
+// sharesPrefix says whether root/bin also holds commands of another toolchain.
+func (p *Provisioner) sharesPrefix(name, root string) bool {
+	for other, def := range p.cat().Toolchains {
+		if other == name {
+			continue
+		}
+		for _, c := range commandsOf(other, def) {
+			if _, err := os.Lstat(filepath.Join(root, "bin", c)); err == nil {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// slimInstall makes dest/bin holding links to just the given commands of root.
+func slimInstall(dest, root string, commands []string) error {
+	bin := filepath.Join(dest, "bin")
+	if err := os.MkdirAll(bin, 0o755); err != nil {
+		return err
+	}
+	n := 0
+	for _, c := range commands {
+		src := filepath.Join(root, "bin", c)
+		if _, err := os.Lstat(src); err != nil {
+			continue
+		}
+		if err := os.Symlink(src, filepath.Join(bin, c)); err != nil {
+			return err
+		}
+		n++
+	}
+	if n == 0 {
+		return errors.New("none of the commands is there")
+	}
+	return nil
 }
 
 // cachedVersions lists the complete installs of a tool in the tool cache.

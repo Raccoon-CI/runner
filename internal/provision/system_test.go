@@ -111,6 +111,57 @@ func TestSystemProbeOutputThatIsNotAVersionIsIgnored(t *testing.T) {
 	}
 }
 
+// InstaBox's template installs Go and Node.js into the same /usr/local/bin.
+// Adopting Node.js must not put Go on PATH under Node's name: a step that
+// selected another Go earlier would lose to it.
+func TestSharedPrefixIsNotLinkedWhole(t *testing.T) {
+	prefix := filepath.Join(t.TempDir(), "local")
+	bin := filepath.Join(prefix, "bin")
+	os.MkdirAll(bin, 0o755)
+	for _, c := range []string{"node", "npm", "go", "gofmt"} {
+		os.WriteFile(filepath.Join(bin, c), []byte("#!/bin/sh\n"), 0o755)
+	}
+	p := &Provisioner{
+		ToolCache:  t.TempDir(),
+		Installers: map[string]Installer{"node": failingInstaller{}},
+		LookPath: func(c string) (string, error) {
+			if c == "node" {
+				return filepath.Join(bin, "node"), nil
+			}
+			return "", errors.New("no")
+		},
+		Probe: func(context.Context, string, []string) (string, error) { return "v22.23.3\n", nil },
+	}
+	res := p.Ensure(context.Background(), []scan.Demand{toolchain("node", "22", true)})
+	if it := res.Items[0]; it.Status != Cached {
+		t.Fatalf("%+v", it)
+	}
+	adopted := filepath.Join(p.ToolCache, "node", "22.23.3", Arch(), "bin")
+	entries, err := os.ReadDir(adopted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, e := range entries {
+		got = append(got, e.Name())
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"node", "npm"}) {
+		t.Errorf("Node's directory holds %v, want only its own commands", got)
+	}
+	if !slices.Equal(res.PathDirs, []string{adopted}) {
+		t.Errorf("PathDirs = %v", res.PathDirs)
+	}
+
+	// If the machine loses Node.js, the links point nowhere and it no longer counts.
+	os.Remove(filepath.Join(bin, "node"))
+	os.Remove(filepath.Join(bin, "npm"))
+	p.LookPath = notInstalled
+	if it := p.Ensure(context.Background(), []scan.Demand{toolchain("node", "22", false)}).Items[0]; it.Status != Failed {
+		t.Errorf("dangling slim install reported as %+v", it)
+	}
+}
+
 func TestAdoptedCopyThatVanishedIsNotCached(t *testing.T) {
 	p := machineWith(t, "node", "v22.23.3\n", nil)
 	p.Installers["node"] = failingInstaller{}
