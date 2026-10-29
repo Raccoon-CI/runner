@@ -81,7 +81,8 @@ func (r *jobRun) runPres(ctx context.Context, top *scope) {
 			continue // reported when the main step runs
 		}
 		a, err := actions.Load(dir)
-		if err != nil || !a.Runs.IsNode() || a.Runs.Pre == "" {
+		hasPre := a.Runs.IsNode() && a.Runs.Pre != "" || a.Runs.Using == "docker" && a.Runs.PreEntrypoint != ""
+		if err != nil || !hasPre {
 			continue
 		}
 		r.checkCancelled()
@@ -114,7 +115,11 @@ func (r *jobRun) runPres(ctx context.Context, top *scope) {
 				for _, f := range stepEnv {
 					env = env.Set(f.Key, f.Value)
 				}
-				outcome = r.runNodePart(r.stepContext(ctx), top, s, st, a, info, env, a.Runs.Pre)
+				if a.Runs.Using == "docker" {
+					outcome = r.runDockerPre(r.stepContext(ctx), top, s, st, a, info, env)
+				} else {
+					outcome = r.runNodePart(r.stepContext(ctx), top, s, st, a, info, env, a.Runs.Pre)
+				}
 			} else {
 				r.emitStep(st, Error, "env: "+err.Error(), nil)
 			}
@@ -134,6 +139,19 @@ func (r *jobRun) runNodePart(ctx context.Context, sc *scope, s *workflow.Step, s
 	withObj, _ := with.(value.Object)
 	inputs := r.actionInputs(st, a, withObj, ectx, false)
 	return r.runNode(ctx, st, a, info, entry, inputs, env)
+}
+
+// runDockerPre runs a Docker action's pre-entrypoint.
+func (r *jobRun) runDockerPre(ctx context.Context, sc *scope, s *workflow.Step, st *stepState, a *actions.Action, info *actionInfo, env value.Object) Conclusion {
+	ectx := r.exprCtx(sc, env, nil, st.github)
+	with, err := expr.EvalValue(s.With, ectx)
+	if err != nil {
+		r.emitStep(st, Error, "with: "+err.Error(), nil)
+		return Failure
+	}
+	withObj, _ := with.(value.Object)
+	inputs := r.actionInputs(st, a, withObj, ectx, false)
+	return r.runDockerAction(ctx, sc, st, a, info, inputs, env, dockerPre)
 }
 
 func (r *jobRun) finishPart(name string, outcome Conclusion) {
@@ -166,7 +184,11 @@ func (r *jobRun) runPosts(ctx context.Context) {
 		outcome := Failure
 		if st, err := r.newStep(p.sc, p.s, p.name, p.state); err == nil {
 			st.github = withAction(st.github, p.info)
-			outcome = r.runNode(r.stepContext(ctx), st, p.a, p.info, p.a.Runs.Post, p.inputs, p.env)
+			if p.a.Runs.Using == "docker" {
+				outcome = r.runDockerAction(r.stepContext(ctx), p.sc, st, p.a, p.info, p.inputs, p.env, dockerPost)
+			} else {
+				outcome = r.runNode(r.stepContext(ctx), st, p.a, p.info, p.a.Runs.Post, p.inputs, p.env)
+			}
 		}
 		r.finishPart(p.name, outcome)
 	}
@@ -199,7 +221,7 @@ func (r *jobRun) runUses(ctx context.Context, sc *scope, s *workflow.Step, st *s
 	var info *actionInfo
 	switch uses := s.Uses; {
 	case strings.HasPrefix(uses, "docker://"):
-		return fail("%s: docker:// actions aren't supported yet", uses)
+		return r.runDockerImageStep(ctx, st, strings.TrimPrefix(uses, "docker://"), withObj, env)
 	case !isRemote(uses):
 		info = &actionInfo{path: filepath.Join(r.workspace, filepath.FromSlash(uses))}
 	default:
@@ -240,6 +262,17 @@ func (r *jobRun) runUses(ctx context.Context, sc *scope, s *workflow.Step, st *s
 		return outcome
 	case a.Runs.Using == "composite":
 		return r.runComposite(ctx, sc, st, a, info, inputs, stepEnv)
+	case a.Runs.Using == "docker":
+		outcome := r.runDockerAction(ctx, sc, st, a, info, inputs, env, dockerMain)
+		if a.Runs.PostEntrypoint != "" {
+			r.mu.Lock()
+			r.posts = append(r.posts, &post{
+				name: "Post " + st.name, sc: sc, s: s, a: a, info: info,
+				inputs: inputs, env: env, state: st.state,
+			})
+			r.mu.Unlock()
+		}
+		return outcome
 	}
 	return fail("%s: %s actions aren't supported yet", s.Uses, a.Runs.Using)
 }

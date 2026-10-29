@@ -93,6 +93,33 @@ func (c *Client) Pull(ctx context.Context, image, configDir string) error {
 	return err
 }
 
+// Build builds the Dockerfile at dockerfile (a path) with contextDir as the
+// build context and tags the image.
+func (c *Client) Build(ctx context.Context, tag, dockerfile, contextDir string) error {
+	_, err := c.run(ctx, nil, "", "build", "--quiet", "-t", tag, "-f", dockerfile, contextDir)
+	return err
+}
+
+// RunCmd builds `docker run args...` with env ("NAME=value" entries) passed
+// the way Create passes it, off the command line. The returned func removes
+// any temporary file and must be called once the command is done. The caller
+// starts it and decides where its output goes; give the container a name with
+// --name so Kill can stop it, since killing the docker client does not.
+func (c *Client) RunCmd(ctx context.Context, env []string, args ...string) (*exec.Cmd, func(), error) {
+	flags, extra, cleanup, err := envArgs(env)
+	if err != nil {
+		return nil, nil, err
+	}
+	cmd := exec.CommandContext(ctx, c.Bin, append(append([]string{"run"}, flags...), args...)...)
+	cmd.Env = append(os.Environ(), extra...)
+	return cmd, cleanup, nil
+}
+
+// Kill stops a running container immediately. Best effort.
+func (c *Client) Kill(ctx context.Context, name string) {
+	_, _ = c.run(ctx, nil, "", "kill", name)
+}
+
 // ImageEnv is the environment an image is configured with.
 func (c *Client) ImageEnv(ctx context.Context, image string) ([]string, error) {
 	out, err := c.run(ctx, nil, "", "image", "inspect", "--format", "{{json .Config.Env}}", image)

@@ -182,6 +182,7 @@ type jobRun struct {
 
 	// Containers (see containers.go).
 	dkr          *docker.Client
+	builtImages  map[string]bool // Docker action images built from a Dockerfile (docker_action.go)
 	rootless     bool
 	network      string
 	netMade      bool

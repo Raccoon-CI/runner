@@ -62,6 +62,16 @@ func (r *jobRun) exec(ctx context.Context, st *stepState, argv []string, dir str
 		cmd = exec.Command(argv[0], argv[1:]...)
 		cmd.Dir, cmd.Env = dir, env
 	}
+	return r.runCmd(ctx, st, cmd, cid, pidFile, nil)
+}
+
+// runCmd runs a prepared command as a step's process: output lines become
+// events (and workflow commands), cancelling ctx interrupts its process
+// group and kills it after the grace period, and the step's file commands are
+// applied at the end. For a step in the job container cid and pidFile say how
+// to signal it there. onKill, if set, is called when the grace period runs
+// out, for processes that outlive their client (a docker container).
+func (r *jobRun) runCmd(ctx context.Context, st *stepState, cmd *exec.Cmd, cid, pidFile string, onKill func()) Conclusion {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	var mu sync.Mutex // one line at a time across stdout and stderr
 	handle := func(line string) {
@@ -98,6 +108,9 @@ func (r *jobRun) exec(ctx context.Context, st *stepState, argv []string, dir str
 			case <-time.After(killGrace):
 				signal(syscall.SIGKILL)
 				_ = syscall.Kill(-pgid, syscall.SIGKILL)
+				if onKill != nil {
+					onKill()
+				}
 			case <-done:
 			}
 		case <-done:

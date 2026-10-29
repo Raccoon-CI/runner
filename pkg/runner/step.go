@@ -399,6 +399,13 @@ var githubEnv = []string{
 // processEnv is a step's process environment. User env can't override the
 // GITHUB_* and RUNNER_* variables, as on GitHub (CI it can).
 func (r *jobRun) processEnv(env value.Object, st *stepState, extra [][2]string) []string {
+	return r.envFor(env, st, extra, true)
+}
+
+// envFor builds a step's environment. With host false it leaves out this
+// machine's own environment and PATH, for a process in a container of its
+// own (a Docker action), which gets only what the workflow and the runner set.
+func (r *jobRun) envFor(env value.Object, st *stepState, extra [][2]string, host bool) []string {
 	r.mu.Lock()
 	base := slices.Clone(r.cBase) // a container job starts from its image's environment
 	serviceEnv := r.cfg.ServiceEnv
@@ -406,6 +413,9 @@ func (r *jobRun) processEnv(env value.Object, st *stepState, extra [][2]string) 
 		serviceEnv = r.cServiceEnv
 	}
 	r.mu.Unlock()
+	if !host {
+		base = []string{}
+	}
 	if base == nil {
 		base = r.cfg.BaseEnv
 		if base == nil {
@@ -452,7 +462,7 @@ func (r *jobRun) processEnv(env value.Object, st *stepState, extra [][2]string) 
 		set(kv[0], kv[1])
 	}
 	r.mu.Lock()
-	if len(r.path) > 0 {
+	if len(r.path) > 0 && host {
 		p := strings.Join(r.path, string(os.PathListSeparator))
 		if m["PATH"] != "" {
 			p += string(os.PathListSeparator) + m["PATH"]
