@@ -18,6 +18,7 @@ import (
 	"raccoonci/internal/provision"
 	"raccoonci/internal/runner"
 	"raccoonci/internal/runnerimages"
+	"raccoonci/internal/scan"
 	"raccoonci/internal/value"
 	"raccoonci/internal/workflow"
 )
@@ -62,6 +63,9 @@ type RemoteInstance struct {
 	Matrix   value.Object
 	Strategy value.Object
 	Needs    value.Object
+	// Toolchains are the names of the toolchains the instance uses, as the
+	// scan found them (sorted by first use).
+	Toolchains []string
 }
 
 // InstanceResult is how one instance ended.
@@ -400,17 +404,6 @@ func (e *engine) runInstance(ctx context.Context, j *workflow.Job, combo, strate
 		return res
 	}
 
-	if e.opts.Remote != nil {
-		// The machine repeats everything below (image, provisioning, the
-		// runner) for this one instance; its events come back through Remote.
-		r, err := e.opts.Remote(ctx, RemoteInstance{Job: j, Name: name, Matrix: combo, Strategy: strategy, Needs: needs})
-		if err != nil {
-			return fail("%v", err)
-		}
-		res.conclusion, res.outputs = r.Conclusion, r.Outputs
-		return res
-	}
-
 	var image *runnerimages.Defaults
 	if e.opts.Images != nil {
 		for _, l := range platform.Labels(runsOn) {
@@ -418,6 +411,26 @@ func (e *engine) runInstance(ctx context.Context, j *workflow.Job, combo, strate
 				break
 			}
 		}
+	}
+
+	if e.opts.Remote != nil {
+		// The machine repeats everything below (provisioning, the runner) for
+		// this one instance; its events come back through Remote. The scan
+		// is repeated there; here it only names the toolchains, for the
+		// caller to decide whether an environment snapshot fits.
+		inst := RemoteInstance{Job: j, Name: name, Matrix: combo, Strategy: strategy, Needs: needs}
+		scanned := scan.Job(scan.Input{Workflow: e.w, Job: j, Context: ectx, Image: image, Repo: e.opts.Repo, Catalog: cat})
+		for _, d := range scanned.Demands {
+			if d.Kind == scan.Toolchain && !slices.Contains(inst.Toolchains, d.Name) {
+				inst.Toolchains = append(inst.Toolchains, d.Name)
+			}
+		}
+		r, err := e.opts.Remote(ctx, inst)
+		if err != nil {
+			return fail("%v", err)
+		}
+		res.conclusion, res.outputs = r.Conclusion, r.Outputs
+		return res
 	}
 
 	e.mu.Lock()
