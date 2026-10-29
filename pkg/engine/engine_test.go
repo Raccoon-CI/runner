@@ -123,6 +123,88 @@ jobs:
 	}
 }
 
+// With Remote set the engine resolves matrices and needs but runs nothing
+// itself: each instance goes to Remote, and what Remote returns (here: a
+// machine standing in, using RunInstance) feeds later jobs' needs.
+func TestRemoteGetsEachResolvedInstance(t *testing.T) {
+	src := `
+on: push
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.v.outputs.versions }}
+    steps:
+      - id: v
+        run: echo 'versions=["1.0", "2.0"]' >> "$GITHUB_OUTPUT"
+  test:
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        version: ${{ fromJSON(needs.setup.outputs.versions) }}
+    steps:
+      - run: echo "testing ${{ matrix.version }} after ${{ needs.setup.result }}"
+`
+	w, err := workflow.Parse([]byte(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine := &log{}
+	base := Options{
+		WorkDir: t.TempDir(),
+		Github:  value.Object{{Key: "repository", Value: "octo/hello"}},
+		Runner:  runner.Config{BaseEnv: []string{"PATH=" + os.Getenv("PATH")}, OnEvent: machine.add},
+	}
+	var mu sync.Mutex
+	var got []string
+	opts := base
+	opts.MaxParallel = 4
+	opts.Runner.OnEvent = func(runner.Event) { t.Error("the controller ran something itself") }
+	opts.Remote = func(ctx context.Context, in RemoteInstance) (runner.Result, error) {
+		mu.Lock()
+		got = append(got, in.Name)
+		mu.Unlock()
+		own := base // a machine of its own: its own work directory
+		own.WorkDir = t.TempDir()
+		r := RunInstance(ctx, w, own, in.Job, in.Matrix, in.Strategy, in.Needs)
+		return runner.Result{Conclusion: r.Conclusion, Outputs: r.Outputs}, nil
+	}
+	res, err := Run(context.Background(), w, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Conclusion != runner.Success {
+		t.Fatalf("conclusion %s: %v", res.Conclusion, machine.jobs())
+	}
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"setup", "test (1.0)", "test (2.0)"}) {
+		t.Errorf("instances sent: %v", got)
+	}
+	if out := machine.output("test (2.0)"); !slices.Equal(out, []string{"testing 2.0 after success"}) {
+		t.Errorf("test (2.0): %q", out)
+	}
+}
+
+func TestRemoteErrorFailsTheInstance(t *testing.T) {
+	w, _ := workflow.Parse([]byte("on: push\njobs:\n  a:\n    runs-on: ubuntu-latest\n    steps:\n      - run: echo hi\n"))
+	l := &log{}
+	res, err := Run(context.Background(), w, Options{
+		WorkDir: t.TempDir(),
+		Github:  value.Object{{Key: "repository", Value: "octo/hello"}},
+		Runner:  runner.Config{OnEvent: l.add},
+		Remote: func(context.Context, RemoteInstance) (runner.Result, error) {
+			return runner.Result{}, errors.New("the machine went away")
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Conclusion != runner.Failure || !strings.Contains(l.errorsOf("a"), "the machine went away") {
+		t.Errorf("conclusion %s, errors %q", res.Conclusion, l.errorsOf("a"))
+	}
+}
+
 func TestFailurePropagation(t *testing.T) {
 	res, l := runWorkflow(t, `
 on: push

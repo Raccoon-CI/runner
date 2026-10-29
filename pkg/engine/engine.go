@@ -46,6 +46,45 @@ type Options struct {
 	Jobs []string
 	// MaxParallel caps how many job instances run at once (default 1).
 	MaxParallel int
+	// Remote, if set, runs each job instance somewhere else (on another
+	// machine) instead of here, and returns how it ended. It is called once
+	// the instance holds a MaxParallel slot. The events of the instance reach
+	// Runner.OnEvent through the caller's own plumbing; an error fails the
+	// instance. The machine runs it with RunInstance.
+	Remote func(ctx context.Context, inst RemoteInstance) (runner.Result, error)
+}
+
+// RemoteInstance is one job instance as the engine resolved it: the inputs a
+// machine needs, besides the workflow and the run's contexts, to run it.
+type RemoteInstance struct {
+	Job      *workflow.Job
+	Name     string
+	Matrix   value.Object
+	Strategy value.Object
+	Needs    value.Object
+}
+
+// InstanceResult is how one instance ended.
+type InstanceResult struct {
+	Conclusion runner.Conclusion
+	Outputs    value.Object
+}
+
+// RunInstance runs one job instance (as the engine does for each matrix
+// combination, after it has resolved the matrix and the needs), for a machine
+// that was sent just that. opts.Remote is ignored.
+func RunInstance(ctx context.Context, w *workflow.Workflow, opts Options, job *workflow.Job, matrix, strategy, needs value.Object) InstanceResult {
+	opts.Remote = nil
+	if opts.MaxParallel < 1 {
+		opts.MaxParallel = 1
+	}
+	if opts.Catalog == nil {
+		opts.Catalog = catalog.Default()
+	}
+	e := &engine{w: w, opts: opts, sem: make(chan struct{}, opts.MaxParallel),
+		done: map[string]chan struct{}{}, res: map[string]*JobResult{}}
+	r := e.runInstance(ctx, job, matrix, strategy, needs)
+	return InstanceResult{Conclusion: r.conclusion, Outputs: r.outputs}
 }
 
 type JobResult struct {
@@ -358,6 +397,17 @@ func (e *engine) runInstance(ctx context.Context, j *workflow.Job, combo, strate
 	if ctx.Err() != nil { // fail-fast cancelled it while it waited
 		e.emit(runner.Event{Kind: runner.JobFinished, Job: name, Conclusion: runner.Cancelled})
 		res.conclusion = runner.Cancelled
+		return res
+	}
+
+	if e.opts.Remote != nil {
+		// The machine repeats everything below (image, provisioning, the
+		// runner) for this one instance; its events come back through Remote.
+		r, err := e.opts.Remote(ctx, RemoteInstance{Job: j, Name: name, Matrix: combo, Strategy: strategy, Needs: needs})
+		if err != nil {
+			return fail("%v", err)
+		}
+		res.conclusion, res.outputs = r.Conclusion, r.Outputs
 		return res
 	}
 
