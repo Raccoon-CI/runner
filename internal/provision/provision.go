@@ -184,6 +184,10 @@ func (p *Provisioner) ensureToolchain(ctx context.Context, it *Item) {
 		return
 	}
 	def := p.cat().Toolchains[d.Name]
+	if def != nil && def.ImplicitOnly && !d.Implicit {
+		it.Status, it.Detail = Skipped, "its setup action installs "+p.cat().Title(d.Name)+" itself"
+		return
+	}
 	var inst Installer
 	if def != nil {
 		inst = p.Installers[def.Installer]

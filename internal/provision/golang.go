@@ -176,5 +176,7 @@ func DefaultInstallers(client *http.Client) map[string]Installer {
 		"node":   NewNode(client, nodejs.DefaultBaseURL),
 		"go":     NewGo(client, DefaultGoURL),
 		"python": NewPython(client, DefaultPythonLatestURL, DefaultPythonReleaseURL),
+		"rust":   NewRust(client, DefaultRustURL),
+		"java":   NewJava(client, DefaultAdoptiumURL),
 	}
 }
