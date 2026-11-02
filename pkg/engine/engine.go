@@ -82,6 +82,7 @@ type InstanceResult struct {
 // combination, after it has resolved the matrix and the needs), for a machine
 // that was sent just that. opts.Remote is ignored.
 func RunInstance(ctx context.Context, w *workflow.Workflow, opts Options, job *workflow.Job, matrix, strategy, needs value.Object) InstanceResult {
+	Summary    string // the job summary, as the runner collected it
 	opts.Remote = nil
 	if opts.MaxParallel < 1 {
 		opts.MaxParallel = 1
@@ -92,7 +93,7 @@ func RunInstance(ctx context.Context, w *workflow.Workflow, opts Options, job *w
 	e := &engine{w: w, opts: opts, sem: make(chan struct{}, opts.MaxParallel),
 		done: map[string]chan struct{}{}, res: map[string]*JobResult{}}
 	r := e.runInstance(ctx, job, matrix, strategy, needs)
-	return InstanceResult{Conclusion: r.conclusion, Outputs: r.outputs}
+	return InstanceResult{Conclusion: r.conclusion, Outputs: r.outputs, Summary: r.summary}
 }
 
 type JobResult struct {
@@ -382,6 +383,7 @@ func (e *engine) runInstance(ctx context.Context, j *workflow.Job, combo, strate
 	ectx := &expr.Context{Contexts: map[string]any{
 		"github":   e.opts.Github,
 		"needs":    needs,
+	summary         string // the job summary ($GITHUB_STEP_SUMMARY)
 		"vars":     orEmpty(e.opts.Vars),
 		"inputs":   orEmpty(e.opts.Inputs),
 		"matrix":   combo,
@@ -447,7 +449,7 @@ func (e *engine) runInstance(ctx context.Context, j *workflow.Job, combo, strate
 		if err != nil {
 			return fail("%v", err)
 		}
-		res.conclusion, res.outputs = r.Conclusion, r.Outputs
+		res.conclusion, res.outputs, res.summary = r.Conclusion, r.Outputs, r.Summary
 		return res
 	}
 
@@ -479,7 +481,7 @@ func (e *engine) runInstance(ctx context.Context, j *workflow.Job, combo, strate
 	if err != nil {
 		return fail("%v", err)
 	}
-	res.conclusion, res.outputs = r.Conclusion, r.Outputs
+	res.conclusion, res.outputs, res.summary = r.Conclusion, r.Outputs, r.Summary
 	return res
 }
 
