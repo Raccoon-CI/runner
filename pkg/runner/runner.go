@@ -21,14 +21,14 @@ import (
 	"syscall"
 	"time"
 
-	"raccoonci/internal/actions"
-	"raccoonci/internal/catalog"
-	"raccoonci/internal/docker"
-	"raccoonci/internal/expr"
-	"raccoonci/internal/runevent"
-	"raccoonci/internal/runnerimages"
-	"raccoonci/internal/value"
-	"raccoonci/internal/workflow"
+	"github.com/Raccoon-CI/raccoonci/internal/actions"
+	"github.com/Raccoon-CI/raccoonci/internal/catalog"
+	"github.com/Raccoon-CI/raccoonci/internal/docker"
+	"github.com/Raccoon-CI/raccoonci/internal/expr"
+	"github.com/Raccoon-CI/raccoonci/internal/runevent"
+	"github.com/Raccoon-CI/raccoonci/internal/runnerimages"
+	"github.com/Raccoon-CI/raccoonci/internal/value"
+	"github.com/Raccoon-CI/raccoonci/internal/workflow"
 )
 
 // The names of what a runner says (events, conclusions, results) live in

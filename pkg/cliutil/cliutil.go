@@ -14,11 +14,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"raccoonci/internal/affected"
-	"raccoonci/internal/cliflag"
-	"raccoonci/internal/trigger"
-	"raccoonci/internal/value"
-	"raccoonci/internal/workflow"
+	"github.com/Raccoon-CI/raccoonci/internal/affected"
+	"github.com/Raccoon-CI/raccoonci/internal/cliflag"
+	"github.com/Raccoon-CI/raccoonci/internal/trigger"
+	"github.com/Raccoon-CI/raccoonci/internal/value"
+	"github.com/Raccoon-CI/raccoonci/internal/workflow"
 )
 
 func AbsPath(p string) string {

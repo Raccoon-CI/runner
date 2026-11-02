@@ -9,19 +9,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Raccoon-CI/raccoonci/internal/mirror"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
-	"raccoonci/internal/mirror"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 
-	"raccoonci/internal/archive"
-	"raccoonci/internal/catalog"
+	"github.com/Raccoon-CI/raccoonci/internal/archive"
+	"github.com/Raccoon-CI/raccoonci/internal/catalog"
 )
 
 const (

@@ -13,7 +13,7 @@ import (
 	"slices"
 	"strings"
 
-	"raccoonci/internal/expr"
+	"github.com/Raccoon-CI/raccoonci/internal/expr"
 )
 
 // hashFiles implements hashFiles(pattern...): a SHA-256 over the SHA-256 of

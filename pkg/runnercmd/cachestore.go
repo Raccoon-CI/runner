@@ -5,7 +5,7 @@ import (
 	"flag"
 	"os"
 
-	"raccoonci/internal/blob"
+	"github.com/Raccoon-CI/raccoonci/internal/blob"
 )
 
 // CacheS3Flags put the actions cache's objects in an S3-compatible bucket
@@ -23,7 +23,7 @@ func (f *CacheS3Flags) Register(fs *flag.FlagSet) {
 	fs.StringVar(&f.bucket, "cache-s3-bucket", "", "keep cache entries in this S3 bucket instead of on this machine's disk (credentials in RACCOONCI_CACHE_S3_KEY and RACCOONCI_CACHE_S3_SECRET, optionally RACCOONCI_CACHE_S3_TOKEN)")
 	fs.StringVar(&f.endpoint, "cache-s3-endpoint", "", "the S3-compatible store's address, for R2, MinIO, SeaweedFS and the like; empty means AWS")
 	fs.StringVar(&f.region, "cache-s3-region", "", "the bucket's region (default us-east-1; R2 wants auto)")
-	fs.StringVar(&f.prefix, "cache-s3-prefix", "raccoonci/", "put every object under this key prefix; each repository gets its own directory below it")
+	fs.StringVar(&f.prefix, "cache-s3-prefix", "github.com/Raccoon-CI/raccoonci/", "put every object under this key prefix; each repository gets its own directory below it")
 	fs.BoolVar(&f.pathStyle, "cache-s3-path-style", false, "address the bucket as host/bucket/key (self-hosted stores need it)")
 }
 

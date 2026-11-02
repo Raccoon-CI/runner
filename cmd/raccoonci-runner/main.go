@@ -14,8 +14,8 @@ import (
 	"fmt"
 	"os"
 
-	"raccoonci/internal/catalog"
-	"raccoonci/internal/runnercmd"
+	"github.com/Raccoon-CI/raccoonci/internal/catalog"
+	"github.com/Raccoon-CI/raccoonci/internal/runnercmd"
 )
 
 // version is set with -ldflags "-X main.version=...".

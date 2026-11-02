@@ -7,11 +7,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Raccoon-CI/raccoonci/internal/actions"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"raccoonci/internal/actions"
 	"slices"
 	"strings"
 	"sync"
@@ -19,11 +19,11 @@ import (
 	"testing"
 	"time"
 
-	"raccoonci/internal/provision"
-	"raccoonci/internal/runner"
-	"raccoonci/internal/runnerimages"
-	"raccoonci/internal/value"
-	"raccoonci/internal/workflow"
+	"github.com/Raccoon-CI/raccoonci/internal/provision"
+	"github.com/Raccoon-CI/raccoonci/internal/runner"
+	"github.com/Raccoon-CI/raccoonci/internal/runnerimages"
+	"github.com/Raccoon-CI/raccoonci/internal/value"
+	"github.com/Raccoon-CI/raccoonci/internal/workflow"
 )
 
 type log struct {

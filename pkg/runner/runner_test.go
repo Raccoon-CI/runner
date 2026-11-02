@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"raccoonci/internal/docker"
-	"raccoonci/internal/value"
-	"raccoonci/internal/workflow"
+	"github.com/Raccoon-CI/raccoonci/internal/docker"
+	"github.com/Raccoon-CI/raccoonci/internal/value"
+	"github.com/Raccoon-CI/raccoonci/internal/workflow"
 )
 
 type recorder struct {

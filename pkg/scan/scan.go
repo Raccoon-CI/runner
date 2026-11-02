@@ -22,12 +22,12 @@ import (
 
 	"mvdan.cc/sh/v3/syntax"
 
-	"raccoonci/internal/actions"
-	"raccoonci/internal/catalog"
-	"raccoonci/internal/expr"
-	"raccoonci/internal/runnerimages"
-	"raccoonci/internal/value"
-	"raccoonci/internal/workflow"
+	"github.com/Raccoon-CI/raccoonci/internal/actions"
+	"github.com/Raccoon-CI/raccoonci/internal/catalog"
+	"github.com/Raccoon-CI/raccoonci/internal/expr"
+	"github.com/Raccoon-CI/raccoonci/internal/runnerimages"
+	"github.com/Raccoon-CI/raccoonci/internal/value"
+	"github.com/Raccoon-CI/raccoonci/internal/workflow"
 )
 
 type Kind = catalog.Kind

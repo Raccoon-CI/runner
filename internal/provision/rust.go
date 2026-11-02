@@ -12,7 +12,7 @@ import (
 	"runtime"
 	"strings"
 
-	"raccoonci/internal/archive"
+	"github.com/Raccoon-CI/raccoonci/internal/archive"
 )
 
 // DefaultRustURL is where the Rust project publishes its releases.

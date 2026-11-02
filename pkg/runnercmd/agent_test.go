@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"raccoonci/internal/dispatch"
-	"raccoonci/internal/runner"
-	"raccoonci/internal/wire"
+	"github.com/Raccoon-CI/raccoonci/internal/dispatch"
+	"github.com/Raccoon-CI/raccoonci/internal/runner"
+	"github.com/Raccoon-CI/raccoonci/internal/wire"
 )
 
 type lockedBuf struct {

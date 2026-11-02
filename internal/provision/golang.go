@@ -4,17 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Raccoon-CI/raccoonci/internal/mirror"
 	"io"
 	"net/http"
-	"raccoonci/internal/mirror"
 	"regexp"
 	"runtime"
 	"strings"
 	"sync"
 
-	"raccoonci/internal/archive"
-	"raccoonci/internal/nodejs"
-	"raccoonci/internal/semver"
+	"github.com/Raccoon-CI/raccoonci/internal/archive"
+	"github.com/Raccoon-CI/raccoonci/internal/nodejs"
+	"github.com/Raccoon-CI/raccoonci/internal/semver"
 )
 
 // DefaultGoURL is where Go publishes its releases.

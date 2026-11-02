@@ -19,9 +19,9 @@ import (
 	"sync"
 	"time"
 
-	"raccoonci/internal/expr"
-	"raccoonci/internal/runner"
-	"raccoonci/internal/value"
+	"github.com/Raccoon-CI/raccoonci/internal/expr"
+	"github.com/Raccoon-CI/raccoonci/internal/runner"
+	"github.com/Raccoon-CI/raccoonci/internal/value"
 )
 
 func git(dir string, args ...string) string {

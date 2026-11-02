@@ -8,14 +8,14 @@ import (
 	"io/fs"
 	"sync"
 
-	"raccoonci/internal/catalog"
-	"raccoonci/internal/jobgraph"
-	"raccoonci/internal/missing"
-	"raccoonci/internal/provision"
-	"raccoonci/internal/runner"
-	"raccoonci/internal/runnerimages"
-	"raccoonci/internal/value"
-	"raccoonci/internal/workflow"
+	"github.com/Raccoon-CI/raccoonci/internal/catalog"
+	"github.com/Raccoon-CI/raccoonci/internal/jobgraph"
+	"github.com/Raccoon-CI/raccoonci/internal/missing"
+	"github.com/Raccoon-CI/raccoonci/internal/provision"
+	"github.com/Raccoon-CI/raccoonci/internal/runner"
+	"github.com/Raccoon-CI/raccoonci/internal/runnerimages"
+	"github.com/Raccoon-CI/raccoonci/internal/value"
+	"github.com/Raccoon-CI/raccoonci/internal/workflow"
 )
 
 type Options struct {

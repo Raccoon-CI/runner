@@ -7,10 +7,10 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"raccoonci/internal/catalog"
-	"raccoonci/internal/expr"
-	"raccoonci/internal/runnerimages"
-	"raccoonci/internal/workflow"
+	"github.com/Raccoon-CI/raccoonci/internal/catalog"
+	"github.com/Raccoon-CI/raccoonci/internal/expr"
+	"github.com/Raccoon-CI/raccoonci/internal/runnerimages"
+	"github.com/Raccoon-CI/raccoonci/internal/workflow"
 )
 
 var ubuntu24 = &runnerimages.Defaults{

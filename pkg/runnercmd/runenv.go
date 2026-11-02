@@ -5,9 +5,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"raccoonci/internal/catalog"
-	"raccoonci/internal/nodejs"
-	"raccoonci/internal/provision"
+	"github.com/Raccoon-CI/raccoonci/internal/catalog"
+	"github.com/Raccoon-CI/raccoonci/internal/nodejs"
+	"github.com/Raccoon-CI/raccoonci/internal/provision"
 )
 
 // RunEnv is what a machine needs to run job instances besides the workflow:

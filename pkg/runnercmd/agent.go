@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"raccoonci/internal/dispatch"
+	"github.com/Raccoon-CI/raccoonci/internal/dispatch"
 )
 
 // agentConfig is the file a controller's provider puts on the machine.
