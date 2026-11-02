@@ -7,19 +7,16 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"path/filepath"
-	"raccoonci/internal/missing"
-	"slices"
 	"strings"
 	"sync"
 
 	"raccoonci/internal/catalog"
 	"raccoonci/internal/expr"
+	"raccoonci/internal/missing"
 	"raccoonci/internal/platform"
 	"raccoonci/internal/provision"
 	"raccoonci/internal/runner"
 	"raccoonci/internal/runnerimages"
-	"raccoonci/internal/scan"
 	"raccoonci/internal/value"
 	"raccoonci/internal/workflow"
 )
@@ -76,6 +73,11 @@ type RemoteInstance struct {
 	// Toolchains are the names of the toolchains the instance uses, as the
 	// scan found them (sorted by first use).
 	Toolchains []string
+	// Context is the expression context of the instance (github, needs,
+	// vars, inputs, matrix, strategy) and RunsOn its evaluated runs-on, for the
+	// executor to scan and to choose an image with.
+	Context *expr.Context
+	RunsOn  any
 }
 
 // InstanceResult is how one instance ended.
@@ -98,6 +100,7 @@ func RunInstance(ctx context.Context, w *workflow.Workflow, opts Options, job *w
 	}
 	e := &engine{w: w, opts: opts, sem: make(chan struct{}, opts.MaxParallel),
 		done: map[string]chan struct{}{}, res: map[string]*JobResult{}}
+	e.exec = e.runHere
 	r := e.runInstance(ctx, job, matrix, strategy, needs)
 	return InstanceResult{Conclusion: r.conclusion, Outputs: r.outputs, Summary: r.summary}
 }
@@ -125,6 +128,8 @@ type engine struct {
 	mu   sync.Mutex
 	done map[string]chan struct{}
 	res  map[string]*JobResult
+	// exec runs one resolved job instance, here or on another machine.
+	exec func(ctx context.Context, inst RemoteInstance) (runner.Result, error)
 }
 
 func Run(ctx context.Context, w *workflow.Workflow, opts Options) (*Result, error) {
@@ -143,6 +148,10 @@ func Run(ctx context.Context, w *workflow.Workflow, opts Options) (*Result, erro
 		sem:  make(chan struct{}, opts.MaxParallel),
 		done: map[string]chan struct{}{},
 		res:  map[string]*JobResult{},
+	}
+	e.exec = e.runHere
+	if opts.Remote != nil {
+		e.exec = e.runRemote
 	}
 	for _, j := range selected {
 		e.done[j.ID] = make(chan struct{})
@@ -430,68 +439,7 @@ func (e *engine) runInstance(ctx context.Context, j *workflow.Job, combo, strate
 		return res
 	}
 
-	var image *runnerimages.Defaults
-	if e.opts.Images != nil {
-		for _, l := range platform.Labels(runsOn) {
-			if image = e.opts.Images.ForLabel(cat, l); image != nil {
-				break
-			}
-		}
-	}
-
-	if e.opts.Remote != nil {
-		// The machine repeats everything below (provisioning, the runner) for
-		// this one instance; its events come back through Remote. The scan
-		// is repeated there; here it only names the toolchains, for the
-		// caller to decide whether an environment snapshot fits.
-		inst := RemoteInstance{Job: j, Name: name, Matrix: combo, Strategy: strategy, Needs: needs}
-		scanned := scan.Job(scan.Input{Workflow: e.w, Job: j, Context: ectx, Image: image, Repo: e.opts.Repo, Catalog: cat})
-		for _, d := range scanned.Demands {
-			if d.Kind == scan.Toolchain && !slices.Contains(inst.Toolchains, d.Name) {
-				inst.Toolchains = append(inst.Toolchains, d.Name)
-			}
-		}
-		r, err := e.opts.Remote(ctx, inst)
-		if err != nil {
-			return fail("%v", err)
-		}
-		res.conclusion, res.outputs, res.summary = r.Conclusion, r.Outputs, r.Summary
-		return res
-	}
-
-	e.mu.Lock()
-	e.seq++
-	dir := filepath.Join(e.opts.WorkDir, fmt.Sprintf("%d-%s", e.seq, j.ID))
-	e.mu.Unlock()
-	cfg := e.opts.Runner
-	cfg.WorkDir = dir
-	if cfg.Catalog == nil {
-		cfg.Catalog = cat
-	}
-	if e.opts.Missing != nil {
-		key := missing.Key(e.opts.WorkflowID, j.ID)
-		cfg.OnMissing = func(cmd string) {
-			if _, err := e.opts.Missing.Add(key, cmd); err != nil {
-				e.emit(runner.Event{Kind: runner.Warning, Job: name, Text: fmt.Sprintf("could not remember that %s was missing: %v", cmd, err)})
-			}
-		}
-	}
-	if e.opts.Provision != nil {
-		cfg.PrependPath = append(slices.Clone(cfg.PrependPath), e.provision(ctx, name, j, ectx, image)...)
-	}
-	r, err := runner.Run(ctx, cfg, &runner.Job{
-		Workflow: e.w,
-		Job:      j,
-		Name:     name,
-		Github:   e.opts.Github,
-		Matrix:   combo,
-		Strategy: strategy,
-		Needs:    needs,
-		Inputs:   e.opts.Inputs,
-		Vars:     e.opts.Vars,
-		Secrets:  e.opts.Secrets,
-		Image:    image,
-	})
+	r, err := e.exec(ctx, RemoteInstance{Job: j, Name: name, Matrix: combo, Strategy: strategy, Needs: needs, Context: ectx, RunsOn: runsOn})
 	if err != nil {
 		return fail("%v", err)
 	}
