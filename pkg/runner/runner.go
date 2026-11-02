@@ -25,18 +25,26 @@ import (
 	"raccoonci/internal/catalog"
 	"raccoonci/internal/docker"
 	"raccoonci/internal/expr"
+	"raccoonci/internal/runevent"
 	"raccoonci/internal/runnerimages"
 	"raccoonci/internal/value"
 	"raccoonci/internal/workflow"
 )
 
-type Conclusion string
+// The names of what a runner says (events, conclusions, results) live in
+// package runevent, which holds only data; they are re-exported here.
+type (
+	Conclusion = runevent.Conclusion
+	EventKind  = runevent.EventKind
+	Event      = runevent.Event
+	Result     = runevent.Result
+)
 
 const (
-	Success   Conclusion = "success"
-	Failure   Conclusion = "failure"
-	Cancelled Conclusion = "cancelled"
-	Skipped   Conclusion = "skipped"
+	Success   = runevent.Success
+	Failure   = runevent.Failure
+	Cancelled = runevent.Cancelled
+	Skipped   = runevent.Skipped
 )
 
 // Job is one job instance with the contexts known when it starts.
@@ -107,40 +115,19 @@ type Config struct {
 	OnEvent    func(Event)
 }
 
-type EventKind int
-
 const (
-	JobStarted EventKind = iota
-	StepStarted
-	Output // a line of step output, with secrets masked
-	Debug
-	Notice
-	Warning
-	Error
-	GroupStart
-	GroupEnd
-	StepFinished // Conclusion is set; Skipped steps get no StepStarted
-	JobFinished
+	JobStarted   = runevent.JobStarted
+	StepStarted  = runevent.StepStarted
+	Output       = runevent.Output // a line of step output, with secrets masked
+	Debug        = runevent.Debug
+	Notice       = runevent.Notice
+	Warning      = runevent.Warning
+	Error        = runevent.Error
+	GroupStart   = runevent.GroupStart
+	GroupEnd     = runevent.GroupEnd
+	StepFinished = runevent.StepFinished // Conclusion is set; Skipped steps get no StepStarted
+	JobFinished  = runevent.JobFinished
 )
-
-type Event struct {
-	Kind  EventKind
-	Time  time.Time
-	Job   string
-	Step  string // display name; "" for job-level events
-	Depth int    // 1 for steps inside a composite action, and so on
-	Text  string
-	// Props are an annotation's file, line, col, endLine, endColumn, title.
-	Props      map[string]string
-	Conclusion Conclusion
-}
-
-type Result struct {
-	Conclusion Conclusion
-	Outputs    value.Object
-	// Summary is the job summary written to $GITHUB_STEP_SUMMARY.
-	Summary string
-}
 
 const (
 	defaultJobTimeout = 360 * time.Minute
