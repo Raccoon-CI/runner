@@ -76,13 +76,13 @@ type RemoteInstance struct {
 type InstanceResult struct {
 	Conclusion runner.Conclusion
 	Outputs    value.Object
+	Summary    string // the job summary, as the runner collected it
 }
 
 // RunInstance runs one job instance (as the engine does for each matrix
 // combination, after it has resolved the matrix and the needs), for a machine
 // that was sent just that. opts.Remote is ignored.
 func RunInstance(ctx context.Context, w *workflow.Workflow, opts Options, job *workflow.Job, matrix, strategy, needs value.Object) InstanceResult {
-	Summary    string // the job summary, as the runner collected it
 	opts.Remote = nil
 	if opts.MaxParallel < 1 {
 		opts.MaxParallel = 1
@@ -377,13 +377,13 @@ type instanceResult struct {
 	conclusion      runner.Conclusion
 	continueOnError bool
 	outputs         value.Object
+	summary         string // the job summary ($GITHUB_STEP_SUMMARY)
 }
 
 func (e *engine) runInstance(ctx context.Context, j *workflow.Job, combo, strategy, needs value.Object) instanceResult {
 	ectx := &expr.Context{Contexts: map[string]any{
 		"github":   e.opts.Github,
 		"needs":    needs,
-	summary         string // the job summary ($GITHUB_STEP_SUMMARY)
 		"vars":     orEmpty(e.opts.Vars),
 		"inputs":   orEmpty(e.opts.Inputs),
 		"matrix":   combo,
