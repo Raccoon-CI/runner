@@ -8,9 +8,9 @@ import (
 
 	"github.com/Raccoon-CI/raccoonci/internal/missing"
 	"github.com/Raccoon-CI/raccoonci/internal/runner"
-	"github.com/Raccoon-CI/raccoonci/internal/runnerimages"
 	"github.com/Raccoon-CI/raccoonci/internal/scan"
 	"github.com/Raccoon-CI/raccoonci/pkg/platform"
+	"github.com/Raccoon-CI/raccoonci/pkg/runnerimages"
 )
 
 // imageFor is the runner image the instance's runs-on picks, if any.

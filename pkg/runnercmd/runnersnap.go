@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Raccoon-CI/raccoonci/internal/instabox"
+	"github.com/Raccoon-CI/raccoonci/pkg/instabox"
 )
 
 var nameUnsafe = regexp.MustCompile(`[^a-z0-9]+`)

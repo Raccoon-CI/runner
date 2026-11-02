@@ -20,7 +20,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Raccoon-CI/raccoonci/internal/archive"
+	"github.com/Raccoon-CI/raccoonci/pkg/archive"
 	"github.com/Raccoon-CI/raccoonci/pkg/catalog"
 )
 

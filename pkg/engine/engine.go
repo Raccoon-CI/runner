@@ -11,9 +11,9 @@ import (
 	"github.com/Raccoon-CI/raccoonci/internal/missing"
 	"github.com/Raccoon-CI/raccoonci/internal/provision"
 	"github.com/Raccoon-CI/raccoonci/internal/runner"
-	"github.com/Raccoon-CI/raccoonci/internal/runnerimages"
 	"github.com/Raccoon-CI/raccoonci/pkg/catalog"
 	"github.com/Raccoon-CI/raccoonci/pkg/jobgraph"
+	"github.com/Raccoon-CI/raccoonci/pkg/runnerimages"
 	"github.com/Raccoon-CI/raccoonci/pkg/value"
 	"github.com/Raccoon-CI/raccoonci/pkg/workflow"
 )

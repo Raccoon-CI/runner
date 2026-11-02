@@ -23,10 +23,10 @@ import (
 
 	"github.com/Raccoon-CI/raccoonci/internal/actions"
 	"github.com/Raccoon-CI/raccoonci/internal/docker"
-	"github.com/Raccoon-CI/raccoonci/internal/runnerimages"
 	"github.com/Raccoon-CI/raccoonci/pkg/catalog"
 	"github.com/Raccoon-CI/raccoonci/pkg/expr"
 	"github.com/Raccoon-CI/raccoonci/pkg/runevent"
+	"github.com/Raccoon-CI/raccoonci/pkg/runnerimages"
 	"github.com/Raccoon-CI/raccoonci/pkg/value"
 	"github.com/Raccoon-CI/raccoonci/pkg/workflow"
 )

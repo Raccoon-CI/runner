@@ -5,7 +5,7 @@ import (
 	"flag"
 	"os"
 
-	"github.com/Raccoon-CI/raccoonci/internal/blob"
+	"github.com/Raccoon-CI/raccoonci/pkg/blob"
 )
 
 // CacheS3Flags put the actions cache's objects in an S3-compatible bucket

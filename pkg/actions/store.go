@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Raccoon-CI/raccoonci/internal/archive"
+	"github.com/Raccoon-CI/raccoonci/pkg/archive"
 )
 
 // Ref is a `uses: owner/repo[/path]@ref` reference to an action on GitHub.
