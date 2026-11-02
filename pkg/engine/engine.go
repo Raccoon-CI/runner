@@ -1,19 +1,16 @@
-// Package engine runs a whole workflow: it orders jobs by needs, evaluates
-// job conditions, expands matrices (including ones built from earlier jobs'
-// outputs), and runs each job instance through package runner.
+// Package engine runs a whole workflow on this machine's terms: the job graph
+// (package jobgraph) with an executor that scans, provisions and runs each
+// instance through package runner, or hands it to Options.Remote.
 package engine
 
 import (
 	"context"
-	"fmt"
 	"io/fs"
-	"strings"
 	"sync"
 
 	"raccoonci/internal/catalog"
-	"raccoonci/internal/expr"
+	"raccoonci/internal/jobgraph"
 	"raccoonci/internal/missing"
-	"raccoonci/internal/platform"
 	"raccoonci/internal/provision"
 	"raccoonci/internal/runner"
 	"raccoonci/internal/runnerimages"
@@ -62,419 +59,57 @@ type Options struct {
 	Remote func(ctx context.Context, inst RemoteInstance) (runner.Result, error)
 }
 
-// RemoteInstance is one job instance as the engine resolved it: the inputs a
-// machine needs, besides the workflow and the run's contexts, to run it.
-type RemoteInstance struct {
-	Job      *workflow.Job
-	Name     string
-	Matrix   value.Object
-	Strategy value.Object
-	Needs    value.Object
-	// Toolchains are the names of the toolchains the instance uses, as the
-	// scan found them (sorted by first use).
-	Toolchains []string
-	// Context is the expression context of the instance (github, needs,
-	// vars, inputs, matrix, strategy) and RunsOn its evaluated runs-on, for the
-	// executor to scan and to choose an image with.
-	Context *expr.Context
-	RunsOn  any
-}
-
-// InstanceResult is how one instance ended.
-type InstanceResult struct {
-	Conclusion runner.Conclusion
-	Outputs    value.Object
-	Summary    string // the job summary, as the runner collected it
-}
-
-// RunInstance runs one job instance (as the engine does for each matrix
-// combination, after it has resolved the matrix and the needs), for a machine
-// that was sent just that. opts.Remote is ignored.
-func RunInstance(ctx context.Context, w *workflow.Workflow, opts Options, job *workflow.Job, matrix, strategy, needs value.Object) InstanceResult {
-	opts.Remote = nil
-	if opts.MaxParallel < 1 {
-		opts.MaxParallel = 1
-	}
-	if opts.Catalog == nil {
-		opts.Catalog = catalog.Default()
-	}
-	e := &engine{w: w, opts: opts, sem: make(chan struct{}, opts.MaxParallel),
-		done: map[string]chan struct{}{}, res: map[string]*JobResult{}}
-	e.exec = e.runHere
-	r := e.runInstance(ctx, job, matrix, strategy, needs)
-	return InstanceResult{Conclusion: r.conclusion, Outputs: r.outputs, Summary: r.summary}
-}
-
-type JobResult struct {
-	ID         string
-	Conclusion runner.Conclusion
-	Outputs    value.Object
-	// Unchanged is set, with the reason, for a job that was left out because
-	// nothing it depends on changed (Options.Unaffected). Its Conclusion is
-	// Success, so jobs that need it go on.
-	Unchanged string
-}
-
-type Result struct {
-	Conclusion runner.Conclusion
-	Jobs       []*JobResult // in workflow order
-}
+type (
+	// RemoteInstance is one job instance as the graph resolved it.
+	RemoteInstance = jobgraph.RemoteInstance
+	InstanceResult = jobgraph.InstanceResult
+	JobResult      = jobgraph.JobResult
+	Result         = jobgraph.Result
+)
 
 type engine struct {
 	w    *workflow.Workflow
 	opts Options
-	sem  chan struct{}
-	seq  int
 	mu   sync.Mutex
-	done map[string]chan struct{}
-	res  map[string]*JobResult
-	// exec runs one resolved job instance, here or on another machine.
-	exec func(ctx context.Context, inst RemoteInstance) (runner.Result, error)
+	seq  int
 }
 
-func Run(ctx context.Context, w *workflow.Workflow, opts Options) (*Result, error) {
-	selected, err := selectJobs(w, opts.Jobs)
-	if err != nil {
-		return nil, err
-	}
-	if opts.MaxParallel < 1 {
-		opts.MaxParallel = 1
-	}
+func newEngine(w *workflow.Workflow, opts Options) *engine {
 	if opts.Catalog == nil {
 		opts.Catalog = catalog.Default()
 	}
-	e := &engine{
-		w: w, opts: opts,
-		sem:  make(chan struct{}, opts.MaxParallel),
-		done: map[string]chan struct{}{},
-		res:  map[string]*JobResult{},
-	}
-	e.exec = e.runHere
-	if opts.Remote != nil {
-		e.exec = e.runRemote
-	}
-	for _, j := range selected {
-		e.done[j.ID] = make(chan struct{})
-	}
-	var wg sync.WaitGroup
-	for _, j := range selected {
-		wg.Go(func() {
-			defer close(e.done[j.ID])
-			r := e.runJob(ctx, j)
-			e.mu.Lock()
-			e.res[j.ID] = r
-			e.mu.Unlock()
-		})
-	}
-	wg.Wait()
-
-	out := &Result{Conclusion: runner.Success}
-	for _, j := range selected {
-		r := e.res[j.ID]
-		out.Jobs = append(out.Jobs, r)
-		switch r.Conclusion {
-		case runner.Failure:
-			out.Conclusion = runner.Failure
-		case runner.Cancelled:
-			if out.Conclusion == runner.Success {
-				out.Conclusion = runner.Cancelled
-			}
-		}
-	}
-	return out, nil
+	return &engine{w: w, opts: opts}
 }
 
-// selectJobs returns the named jobs plus everything they need, in workflow
-// order; all jobs when none are named.
-func selectJobs(w *workflow.Workflow, ids []string) ([]*workflow.Job, error) {
-	if len(ids) == 0 {
-		return w.Jobs, nil
+func (e *engine) graph() jobgraph.Options {
+	o := e.opts
+	g := jobgraph.Options{
+		Github: o.Github, Vars: o.Vars, Inputs: o.Inputs, Catalog: o.Catalog,
+		OnEvent: o.Runner.OnEvent, Jobs: o.Jobs, MaxParallel: o.MaxParallel,
+		Unaffected: o.Unaffected, Remote: e.runHere,
 	}
-	want := map[string]bool{}
-	var add func(id string) error
-	add = func(id string) error {
-		j := w.Job(id)
-		if j == nil {
-			return fmt.Errorf("no job %q in the workflow", id)
-		}
-		if want[id] {
-			return nil
-		}
-		want[id] = true
-		for _, n := range j.Needs {
-			if err := add(n); err != nil {
-				return err
-			}
-		}
-		return nil
+	if o.Remote != nil {
+		g.Remote = e.runRemote
 	}
-	for _, id := range ids {
-		if err := add(id); err != nil {
-			return nil, err
-		}
-	}
-	var out []*workflow.Job
-	for _, j := range w.Jobs {
-		if want[j.ID] {
-			out = append(out, j)
-		}
-	}
-	return out, nil
+	return g
+}
+
+// RunInstance runs one job instance (as Run does for each matrix combination,
+// after it has resolved the matrix and the needs), for a machine that was sent
+// just that. opts.Remote is ignored.
+func RunInstance(ctx context.Context, w *workflow.Workflow, opts Options, job *workflow.Job, matrix, strategy, needs value.Object) InstanceResult {
+	opts.Remote = nil
+	e := newEngine(w, opts)
+	return jobgraph.RunInstance(ctx, w, e.graph(), job, matrix, strategy, needs)
+}
+
+// Run runs the workflow's job graph.
+func Run(ctx context.Context, w *workflow.Workflow, opts Options) (*Result, error) {
+	return jobgraph.Run(ctx, w, newEngine(w, opts).graph())
 }
 
 func (e *engine) emit(ev runner.Event) {
 	if e.opts.Runner.OnEvent != nil {
 		e.opts.Runner.OnEvent(ev)
 	}
-}
-
-func (e *engine) result(id string) *JobResult {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	return e.res[id]
-}
-
-// ancestorFailed reports whether any job j depends on, directly or not,
-// failed: failure() is true for the whole chain below a failed job.
-func (e *engine) ancestorFailed(j *workflow.Job) bool {
-	for _, n := range j.Needs {
-		if e.result(n).Conclusion == runner.Failure || e.ancestorFailed(e.w.Job(n)) {
-			return true
-		}
-	}
-	return false
-}
-
-func (e *engine) runJob(ctx context.Context, j *workflow.Job) *JobResult {
-	res := &JobResult{ID: j.ID, Conclusion: runner.Skipped}
-	needs := value.Object{}
-	skippedNeed := false
-	for _, n := range j.Needs {
-		select {
-		case <-e.done[n]:
-		case <-ctx.Done():
-			<-e.done[n]
-		}
-		r := e.result(n)
-		if r.Conclusion != runner.Success {
-			skippedNeed = true
-		}
-		outputs := r.Outputs
-		if outputs == nil {
-			outputs = value.Object{}
-		}
-		needs = append(needs, value.Field{Key: n, Value: value.Object{
-			{Key: "result", Value: string(r.Conclusion)},
-			{Key: "outputs", Value: outputs},
-		}})
-	}
-
-	ectx := &expr.Context{Contexts: map[string]any{
-		"github": e.opts.Github,
-		"needs":  needs,
-		"vars":   orEmpty(e.opts.Vars),
-		"inputs": orEmpty(e.opts.Inputs),
-	}, Status: &expr.Status{
-		Failed:    e.ancestorFailed(j),
-		Cancelled: ctx.Err() != nil,
-		Skipped:   skippedNeed,
-	}}
-	fail := func(format string, args ...any) *JobResult {
-		e.emit(runner.Event{Kind: runner.Error, Job: j.ID, Text: fmt.Sprintf(format, args...)})
-		res.Conclusion = runner.Failure
-		return res
-	}
-	ok, err := expr.EvalCondition(j.If, ectx)
-	if err != nil {
-		return fail("if: %v", err)
-	}
-	if !ok {
-		e.emit(runner.Event{Kind: runner.JobFinished, Job: j.ID, Conclusion: runner.Skipped})
-		return res
-	}
-	if e.opts.Unaffected != nil {
-		if reason, skip := e.opts.Unaffected(j); skip {
-			// Not run, but not a failure either: a job that depends on this one
-			// sees it as succeeded, as if it had run on code that did not change.
-			e.emit(runner.Event{Kind: runner.Notice, Job: j.ID, Text: "not run: " + reason})
-			e.emit(runner.Event{Kind: runner.JobFinished, Job: j.ID, Conclusion: runner.Skipped})
-			res.Conclusion, res.Unchanged = runner.Success, reason
-			return res
-		}
-	}
-	if j.Uses != "" {
-		return fail("calling reusable workflows (%s) isn't supported yet", j.Uses)
-	}
-	ectx.Status = nil
-
-	var rawMatrix any
-	failFast, maxParallel := any(true), any(nil)
-	if s := j.Strategy; s != nil {
-		rawMatrix = s.Matrix
-		if s.FailFast != nil {
-			failFast = s.FailFast
-		}
-		maxParallel = s.MaxParallel
-	}
-	m, err := expr.EvalValue(rawMatrix, ectx)
-	if err != nil {
-		return fail("strategy.matrix: %v", err)
-	}
-	combos, err := workflow.ExpandMatrix(m)
-	if err != nil {
-		return fail("strategy.matrix: %v", err)
-	}
-	if ff, err := expr.EvalValue(failFast, ectx); err == nil {
-		failFast = expr.Truthy(ff)
-	}
-	limit := len(combos)
-	if maxParallel != nil {
-		mp, err := expr.EvalValue(maxParallel, ectx)
-		if err != nil {
-			return fail("strategy.max-parallel: %v", err)
-		}
-		if n := int(expr.ToNumber(mp)); n > 0 && n < limit {
-			limit = n
-		}
-	}
-
-	jobCtx, cancelJob := context.WithCancel(ctx)
-	defer cancelJob()
-	jobSem := make(chan struct{}, limit)
-	results := make([]instanceResult, len(combos))
-	var wg sync.WaitGroup
-	for i, combo := range combos {
-		strategy := value.Object{
-			{Key: "fail-fast", Value: failFast},
-			{Key: "job-index", Value: float64(i)},
-			{Key: "job-total", Value: float64(len(combos))},
-			{Key: "max-parallel", Value: float64(limit)},
-		}
-		wg.Go(func() {
-			jobSem <- struct{}{}
-			defer func() { <-jobSem }()
-			r := e.runInstance(jobCtx, j, combo, strategy, needs)
-			results[i] = r
-			if r.conclusion == runner.Failure && !r.continueOnError && failFast == true {
-				cancelJob()
-			}
-		})
-	}
-	wg.Wait()
-
-	res.Conclusion = runner.Success
-	for _, r := range results {
-		switch {
-		case r.conclusion == runner.Failure && !r.continueOnError:
-			res.Conclusion = runner.Failure
-		case r.conclusion == runner.Cancelled && res.Conclusion == runner.Success:
-			res.Conclusion = runner.Cancelled
-		}
-		// For matrix jobs, the last instance to set an output wins, as on
-		// GitHub, where the order isn't defined either.
-		for _, f := range r.outputs {
-			if f.Value != "" {
-				res.Outputs = res.Outputs.Set(f.Key, f.Value)
-			}
-		}
-	}
-	return res
-}
-
-func orEmpty(o value.Object) value.Object {
-	if o == nil {
-		return value.Object{}
-	}
-	return o
-}
-
-type instanceResult struct {
-	conclusion      runner.Conclusion
-	continueOnError bool
-	outputs         value.Object
-	summary         string // the job summary ($GITHUB_STEP_SUMMARY)
-}
-
-func (e *engine) runInstance(ctx context.Context, j *workflow.Job, combo, strategy, needs value.Object) instanceResult {
-	ectx := &expr.Context{Contexts: map[string]any{
-		"github":   e.opts.Github,
-		"needs":    needs,
-		"vars":     orEmpty(e.opts.Vars),
-		"inputs":   orEmpty(e.opts.Inputs),
-		"matrix":   combo,
-		"strategy": strategy,
-	}}
-	name := instanceName(j, combo, ectx)
-	res := instanceResult{conclusion: runner.Failure}
-	fail := func(format string, args ...any) instanceResult {
-		e.emit(runner.Event{Kind: runner.Error, Job: name, Text: fmt.Sprintf(format, args...)})
-		e.emit(runner.Event{Kind: runner.JobFinished, Job: name, Conclusion: runner.Failure})
-		return res
-	}
-	if v, err := expr.EvalValue(j.ContinueOnError, ectx); err == nil {
-		res.continueOnError = expr.Truthy(v)
-	}
-	// A run that cannot happen here fails at once, without waiting for a slot
-	// behind runs that can (unless fail-fast has already cancelled it).
-	runsOn, err := expr.EvalValue(j.RunsOn, ectx)
-	if err != nil {
-		return fail("runs-on: %v", err)
-	}
-	cat := e.opts.Catalog
-	if os := platform.FromRunsOn(cat, runsOn); os != "" && !cat.OSAvailable(os) && ctx.Err() == nil {
-		return fail("%s", cat.OSUnavailable(os))
-	}
-
-	select {
-	case e.sem <- struct{}{}:
-		defer func() { <-e.sem }()
-	case <-ctx.Done():
-		e.emit(runner.Event{Kind: runner.JobFinished, Job: name, Conclusion: runner.Cancelled})
-		res.conclusion = runner.Cancelled
-		return res
-	}
-	if ctx.Err() != nil { // fail-fast cancelled it while it waited
-		e.emit(runner.Event{Kind: runner.JobFinished, Job: name, Conclusion: runner.Cancelled})
-		res.conclusion = runner.Cancelled
-		return res
-	}
-
-	r, err := e.exec(ctx, RemoteInstance{Job: j, Name: name, Matrix: combo, Strategy: strategy, Needs: needs, Context: ectx, RunsOn: runsOn})
-	if err != nil {
-		return fail("%v", err)
-	}
-	res.conclusion, res.outputs, res.summary = r.Conclusion, r.Outputs, r.Summary
-	return res
-}
-
-// instanceName is the job's name: its name: (which may use matrix values),
-// or GitHub's default of the id followed by the matrix values.
-func instanceName(j *workflow.Job, combo value.Object, ctx *expr.Context) string {
-	if j.Name != "" {
-		if v, err := expr.Interpolate(j.Name, ctx); err == nil {
-			return expr.ToString(v)
-		}
-		return j.Name
-	}
-	if len(combo) == 0 {
-		return j.ID
-	}
-	var vals []string
-	var leaves func(v any)
-	leaves = func(v any) {
-		switch v := v.(type) {
-		case value.Object:
-			for _, f := range v {
-				leaves(f.Value)
-			}
-		case []any:
-			for _, e := range v {
-				leaves(e)
-			}
-		default:
-			vals = append(vals, expr.ToString(v))
-		}
-	}
-	leaves(combo)
-	return j.ID + " (" + strings.Join(vals, ", ") + ")"
 }
