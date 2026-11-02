@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -74,9 +76,13 @@ func (r *jobRun) exec(ctx context.Context, st *stepState, argv []string, dir str
 func (r *jobRun) runCmd(ctx context.Context, st *stepState, cmd *exec.Cmd, cid, pidFile string, onKill func()) Conclusion {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	var mu sync.Mutex // one line at a time across stdout and stderr
+	var notFound []string
 	handle := func(line string) {
 		mu.Lock()
 		defer mu.Unlock()
+		if m := notFoundRE.FindStringSubmatch(line); m != nil && !slices.Contains(notFound, m[1]) && len(notFound) < 8 {
+			notFound = append(notFound, m[1])
+		}
 		r.handleLine(st, line)
 	}
 	stdout, stderr := &lineWriter{fn: handle}, &lineWriter{fn: handle}
@@ -132,6 +138,12 @@ func (r *jobRun) runCmd(ctx context.Context, st *stepState, cmd *exec.Cmd, cid, 
 	case err == nil, errors.Is(err, exec.ErrWaitDelay) && cmd.ProcessState.Success():
 	case errors.As(err, &exitErr):
 		r.emitStep(st, Error, fmt.Sprintf("Process completed with exit code %d.", exitErr.ExitCode()), nil)
+		if exitErr.ExitCode() == 127 {
+			mu.Lock()
+			names := slices.Clone(notFound)
+			mu.Unlock()
+			r.reportMissing(st, names)
+		}
 		return Failure
 	default:
 		r.emitStep(st, Error, err.Error(), nil)
@@ -147,6 +159,24 @@ func (r *jobRun) runCmd(ctx context.Context, st *stepState, cmd *exec.Cmd, cid, 
 		return Failure
 	}
 	return Success
+}
+
+// notFoundRE matches the shells' "command not found" lines: bash's
+// "script.sh: line 3: jq: command not found" and dash's "sh: 1: jq: not found".
+var notFoundRE = regexp.MustCompile(`([^\s:]+): (?:command )?not found\s*$`)
+
+// reportMissing tells the user, and Config.OnMissing, which commands a step
+// that exited with 127 could not find.
+func (r *jobRun) reportMissing(st *stepState, names []string) {
+	if len(names) == 0 {
+		return
+	}
+	for _, n := range names {
+		if r.cfg.OnMissing != nil {
+			r.cfg.OnMissing(n)
+		}
+	}
+	r.emitStep(st, Warning, fmt.Sprintf("command not found: %s. If it is a tool the workflow expects to be preinstalled, it will be looked for before this job's next run.", strings.Join(names, ", ")), nil)
 }
 
 // lineWriter calls fn for each line written to it.

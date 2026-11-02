@@ -5,6 +5,7 @@ import (
 
 	"raccoonci/internal/actions"
 	"raccoonci/internal/expr"
+	"raccoonci/internal/missing"
 	"raccoonci/internal/provision"
 	"raccoonci/internal/runner"
 	"raccoonci/internal/runnerimages"
@@ -27,6 +28,14 @@ func (e *engine) actionResolver(ctx context.Context) func(string) (*actions.Acti
 	return e.opts.Runner.Actions.Lookup(ctx)
 }
 
+// missingFor lists the commands earlier runs of j could not find.
+func (e *engine) missingFor(j *workflow.Job) []string {
+	if e.opts.Missing == nil {
+		return nil
+	}
+	return e.opts.Missing.Commands(missing.Key(e.opts.WorkflowID, j.ID))
+}
+
 // provision scans a job instance for what it needs, provides it, and
 // returns the directories to put in front of the job's PATH. Nothing here
 // fails a job: the scan is a heuristic, so problems are reported as
@@ -40,6 +49,7 @@ func (e *engine) provision(ctx context.Context, name string, j *workflow.Job, ec
 		Repo:     e.opts.Repo,
 		Catalog:  e.opts.Catalog,
 		Action:   e.actionResolver(ctx),
+		Missing:  e.missingFor(j),
 	})
 	if len(needs.Demands) == 0 && len(needs.Warnings) == 0 {
 		return nil

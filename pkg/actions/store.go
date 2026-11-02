@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"raccoonci/internal/mirror"
 	"regexp"
 	"strings"
 	"sync"
@@ -87,12 +88,18 @@ type fetch struct {
 }
 
 func NewStore(dir, token string) *Store {
+	const defAPI = "https://api.github.com"
+	api := mirror.Base("ACTIONS_API", defAPI)
+	if api != defAPI {
+		// The GitHub token must never be sent to a mirror.
+		token = ""
+	}
 	return &Store{
 		Dir:          dir,
 		Client:       http.DefaultClient,
 		Token:        token,
-		APIBase:      "https://api.github.com",
-		CodeloadBase: "https://codeload.github.com",
+		APIBase:      api,
+		CodeloadBase: mirror.Base("ACTIONS_CODELOAD", "https://codeload.github.com"),
 	}
 }
 

@@ -94,6 +94,10 @@ type Config struct {
 	// earlier step had added them to $GITHUB_PATH: where the provisioner put
 	// the toolchains the job uses without setting them up.
 	PrependPath []string
+	// OnMissing, if set, is called with the name of each command a step could
+	// not find (it exited with 127 after a "command not found" line), so the
+	// caller can remember it and install what provides it before the next run.
+	OnMissing func(cmd string)
 	// ServiceEnv is added to every step's environment: the URLs and tokens of
 	// the runtime services (artifacts, cache, OIDC).
 	ServiceEnv map[string]string

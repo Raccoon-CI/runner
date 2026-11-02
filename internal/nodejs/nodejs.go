@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"raccoonci/internal/mirror"
 	"runtime"
 	"slices"
 	"strconv"
@@ -166,12 +167,12 @@ type Runtime struct {
 }
 
 func New(dir string) *Runtime {
-	return &Runtime{Dir: dir, Client: http.DefaultClient, BaseURL: DefaultBaseURL}
+	return &Runtime{Dir: dir, Client: http.DefaultClient, BaseURL: mirror.Base("NODE", DefaultBaseURL)}
 }
 
 // NewMusl is New for the musl build.
 func NewMusl(dir string) *Runtime {
-	return &Runtime{Dir: dir, Client: http.DefaultClient, BaseURL: UnofficialBaseURL, Musl: true}
+	return &Runtime{Dir: dir, Client: http.DefaultClient, BaseURL: mirror.Base("NODE_MUSL", UnofficialBaseURL), Musl: true}
 }
 
 // Binary returns the node binary for runs.using, downloading the newest

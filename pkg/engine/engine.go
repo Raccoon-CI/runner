@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"path/filepath"
+	"raccoonci/internal/missing"
 	"slices"
 	"strings"
 	"sync"
@@ -38,6 +39,11 @@ type Options struct {
 	// os.OpenRoot FS for untrusted repos.
 	Provision *provision.Provisioner
 	Repo      fs.FS
+	// Missing, if set, remembers commands a job could not find (exit 127), so
+	// the next run of that job installs what provides them. WorkflowID tells
+	// workflow files apart in it (their path in the repository).
+	Missing    *missing.Store
+	WorkflowID string
 
 	// WorkDir gets one directory per job instance.
 	WorkDir string
@@ -461,6 +467,14 @@ func (e *engine) runInstance(ctx context.Context, j *workflow.Job, combo, strate
 	cfg.WorkDir = dir
 	if cfg.Catalog == nil {
 		cfg.Catalog = cat
+	}
+	if e.opts.Missing != nil {
+		key := missing.Key(e.opts.WorkflowID, j.ID)
+		cfg.OnMissing = func(cmd string) {
+			if _, err := e.opts.Missing.Add(key, cmd); err != nil {
+				e.emit(runner.Event{Kind: runner.Warning, Job: name, Text: fmt.Sprintf("could not remember that %s was missing: %v", cmd, err)})
+			}
+		}
 	}
 	if e.opts.Provision != nil {
 		cfg.PrependPath = append(slices.Clone(cfg.PrependPath), e.provision(ctx, name, j, ectx, image)...)

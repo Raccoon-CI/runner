@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"raccoonci/internal/mirror"
 	"regexp"
 	"runtime"
 	"strings"
@@ -173,10 +174,10 @@ func DefaultInstallers(client *http.Client) map[string]Installer {
 		client = http.DefaultClient
 	}
 	return map[string]Installer{
-		"node":   NewNode(client, nodejs.DefaultBaseURL),
-		"go":     NewGo(client, DefaultGoURL),
-		"python": NewPython(client, DefaultPythonLatestURL, DefaultPythonReleaseURL),
-		"rust":   NewRust(client, DefaultRustURL),
-		"java":   NewJava(client, DefaultAdoptiumURL),
+		"node":   NewNode(client, mirror.Base("NODE", nodejs.DefaultBaseURL)),
+		"go":     NewGo(client, mirror.Base("GO", DefaultGoURL)),
+		"python": NewPython(client, mirror.Base("PYTHON_LATEST", DefaultPythonLatestURL), mirror.Base("PYTHON_RELEASE", DefaultPythonReleaseURL)),
+		"rust":   NewRust(client, mirror.Base("RUST", DefaultRustURL)),
+		"java":   NewJava(client, mirror.Base("JAVA", DefaultAdoptiumURL)),
 	}
 }

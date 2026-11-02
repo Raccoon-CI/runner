@@ -78,6 +78,10 @@ type Input struct {
 	// what lets the scan see inside composite and docker actions, which means
 	// downloading them; the scan never fails when it returns false.
 	Action func(uses string) (*actions.Action, bool)
+	// Missing lists commands an earlier run of this job could not find
+	// (exit 127). Those the catalog knows and the image preinstalls are
+	// reported as implicit demands, as if a step had run them.
+	Missing []string
 }
 
 // placeholder replaces expressions that can't be evaluated yet, so scripts
@@ -133,6 +137,11 @@ func Job(in Input) *Result {
 		}
 	}
 	s.manifests()
+	for _, cmd := range in.Missing {
+		if r, ok := s.cat.Command(cmd); ok {
+			s.need("an earlier run of this job", cmd, r)
+		}
+	}
 	return &s.res
 }
 

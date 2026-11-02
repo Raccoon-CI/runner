@@ -393,3 +393,19 @@ jobs:
 	}
 	// Output: toolchain node 22.23.3: step 1 runs npm without setting up Node.js
 }
+
+func TestMissingFromEarlierRunBecomesDemand(t *testing.T) {
+	w, err := workflow.Parse([]byte("on: push\njobs:\n  j:\n    runs-on: ubuntu-latest\n    steps:\n      - run: ./scripts/release.sh\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := Input{Workflow: w, Job: w.Jobs[0], Image: ubuntu24}
+	assertDemands(t, Job(in), "")
+	// jq is in the image; "no-such-tool" is not in the catalog and is ignored.
+	in.Missing = []string{"jq", "no-such-tool"}
+	r := Job(in)
+	assertDemands(t, r, "package jq (implicit)")
+	if !strings.Contains(r.Demands[0].Reason, "an earlier run of this job") {
+		t.Errorf("reason = %q", r.Demands[0].Reason)
+	}
+}
