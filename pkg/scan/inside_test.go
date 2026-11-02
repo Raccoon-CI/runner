@@ -6,8 +6,8 @@ import (
 	"testing/fstest"
 
 	"github.com/Raccoon-CI/raccoonci/internal/actions"
-	"github.com/Raccoon-CI/raccoonci/internal/expr"
-	"github.com/Raccoon-CI/raccoonci/internal/workflow"
+	"github.com/Raccoon-CI/raccoonci/pkg/expr"
+	"github.com/Raccoon-CI/raccoonci/pkg/workflow"
 )
 
 func scanWith(t *testing.T, jobYAML string, repo fs.FS, resolve func(string) (*actions.Action, bool)) *Result {

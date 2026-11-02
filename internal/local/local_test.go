@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/Raccoon-CI/raccoonci/internal/value"
+	"github.com/Raccoon-CI/raccoonci/pkg/value"
 )
 
 func TestCheckoutCopiesWorkingTree(t *testing.T) {

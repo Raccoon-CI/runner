@@ -22,13 +22,13 @@ import (
 	"time"
 
 	"github.com/Raccoon-CI/raccoonci/internal/actions"
-	"github.com/Raccoon-CI/raccoonci/internal/catalog"
 	"github.com/Raccoon-CI/raccoonci/internal/docker"
-	"github.com/Raccoon-CI/raccoonci/internal/expr"
-	"github.com/Raccoon-CI/raccoonci/internal/runevent"
 	"github.com/Raccoon-CI/raccoonci/internal/runnerimages"
-	"github.com/Raccoon-CI/raccoonci/internal/value"
-	"github.com/Raccoon-CI/raccoonci/internal/workflow"
+	"github.com/Raccoon-CI/raccoonci/pkg/catalog"
+	"github.com/Raccoon-CI/raccoonci/pkg/expr"
+	"github.com/Raccoon-CI/raccoonci/pkg/runevent"
+	"github.com/Raccoon-CI/raccoonci/pkg/value"
+	"github.com/Raccoon-CI/raccoonci/pkg/workflow"
 )
 
 // The names of what a runner says (events, conclusions, results) live in

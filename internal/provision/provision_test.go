@@ -19,9 +19,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/Raccoon-CI/raccoonci/internal/catalog"
 	"github.com/Raccoon-CI/raccoonci/internal/nodejs"
 	"github.com/Raccoon-CI/raccoonci/internal/scan"
+	"github.com/Raccoon-CI/raccoonci/pkg/catalog"
 )
 
 // tarGz builds a release archive whose files sit under one top-level directory.

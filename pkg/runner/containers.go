@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/Raccoon-CI/raccoonci/internal/docker"
-	"github.com/Raccoon-CI/raccoonci/internal/expr"
-	"github.com/Raccoon-CI/raccoonci/internal/value"
+	"github.com/Raccoon-CI/raccoonci/pkg/expr"
+	"github.com/Raccoon-CI/raccoonci/pkg/value"
 )
 
 // Container jobs and service containers.

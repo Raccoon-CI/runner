@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Raccoon-CI/raccoonci/internal/expr"
+	"github.com/Raccoon-CI/raccoonci/pkg/expr"
 )
 
 func TestParseCommand(t *testing.T) {

@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/Raccoon-CI/raccoonci/internal/docker"
-	"github.com/Raccoon-CI/raccoonci/internal/expr"
+	"github.com/Raccoon-CI/raccoonci/pkg/expr"
 )
 
 const (

@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/Raccoon-CI/raccoonci/internal/actions"
-	"github.com/Raccoon-CI/raccoonci/internal/catalog"
 	"github.com/Raccoon-CI/raccoonci/internal/cliflag"
 	"github.com/Raccoon-CI/raccoonci/internal/cliutil"
 	"github.com/Raccoon-CI/raccoonci/internal/engine"
@@ -23,9 +22,10 @@ import (
 	"github.com/Raccoon-CI/raccoonci/internal/provision"
 	"github.com/Raccoon-CI/raccoonci/internal/runner"
 	"github.com/Raccoon-CI/raccoonci/internal/runnerimages"
-	"github.com/Raccoon-CI/raccoonci/internal/trigger"
-	"github.com/Raccoon-CI/raccoonci/internal/value"
-	"github.com/Raccoon-CI/raccoonci/internal/workflow"
+	"github.com/Raccoon-CI/raccoonci/pkg/catalog"
+	"github.com/Raccoon-CI/raccoonci/pkg/trigger"
+	"github.com/Raccoon-CI/raccoonci/pkg/value"
+	"github.com/Raccoon-CI/raccoonci/pkg/workflow"
 )
 
 // RunExt is what the controller side adds to the local engine: flags of its

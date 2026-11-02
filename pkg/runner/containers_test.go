@@ -13,7 +13,7 @@ import (
 
 	"github.com/Raccoon-CI/raccoonci/internal/docker"
 	"github.com/Raccoon-CI/raccoonci/internal/nodejs"
-	"github.com/Raccoon-CI/raccoonci/internal/value"
+	"github.com/Raccoon-CI/raccoonci/pkg/value"
 )
 
 func TestParseSpec(t *testing.T) {

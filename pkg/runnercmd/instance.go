@@ -14,21 +14,21 @@ import (
 	"time"
 
 	"github.com/Raccoon-CI/raccoonci/internal/actions"
-	"github.com/Raccoon-CI/raccoonci/internal/catalog"
 	"github.com/Raccoon-CI/raccoonci/internal/cliflag"
 	"github.com/Raccoon-CI/raccoonci/internal/engine"
 	"github.com/Raccoon-CI/raccoonci/internal/local"
 	"github.com/Raccoon-CI/raccoonci/internal/runner"
 	"github.com/Raccoon-CI/raccoonci/internal/runnerimages"
-	"github.com/Raccoon-CI/raccoonci/internal/value"
-	"github.com/Raccoon-CI/raccoonci/internal/wire"
-	"github.com/Raccoon-CI/raccoonci/internal/workflow"
+	"github.com/Raccoon-CI/raccoonci/pkg/catalog"
+	"github.com/Raccoon-CI/raccoonci/pkg/value"
+	"github.com/Raccoon-CI/raccoonci/pkg/wire"
+	"github.com/Raccoon-CI/raccoonci/pkg/workflow"
 )
 
 // RunInstance implements `raccoonci run-instance`, which the agent starts in
 // the unpacked source tree: it runs the one job instance read from standard
 // input and writes wire lines to standard output (what a controller and a
-// machine say to each other lives in internal/wire).
+// machine say to each other lives in pkg/wire).
 func RunInstance(args []string, cat *catalog.Catalog) error {
 	fs := flag.NewFlagSet("run-instance", flag.ExitOnError)
 	var secrets cliflag.List

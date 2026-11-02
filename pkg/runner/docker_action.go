@@ -12,8 +12,8 @@ import (
 
 	"github.com/Raccoon-CI/raccoonci/internal/actions"
 	"github.com/Raccoon-CI/raccoonci/internal/docker"
-	"github.com/Raccoon-CI/raccoonci/internal/expr"
-	"github.com/Raccoon-CI/raccoonci/internal/value"
+	"github.com/Raccoon-CI/raccoonci/pkg/expr"
+	"github.com/Raccoon-CI/raccoonci/pkg/value"
 )
 
 // Docker actions (`uses: docker://image` and `runs.using: docker`) run in a

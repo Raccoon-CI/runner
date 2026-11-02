@@ -16,9 +16,9 @@ import (
 
 	"github.com/Raccoon-CI/raccoonci/internal/affected"
 	"github.com/Raccoon-CI/raccoonci/internal/cliflag"
-	"github.com/Raccoon-CI/raccoonci/internal/trigger"
-	"github.com/Raccoon-CI/raccoonci/internal/value"
-	"github.com/Raccoon-CI/raccoonci/internal/workflow"
+	"github.com/Raccoon-CI/raccoonci/pkg/trigger"
+	"github.com/Raccoon-CI/raccoonci/pkg/value"
+	"github.com/Raccoon-CI/raccoonci/pkg/workflow"
 )
 
 func AbsPath(p string) string {

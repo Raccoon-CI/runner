@@ -21,7 +21,7 @@ import (
 	"sync"
 
 	"github.com/Raccoon-CI/raccoonci/internal/archive"
-	"github.com/Raccoon-CI/raccoonci/internal/catalog"
+	"github.com/Raccoon-CI/raccoonci/pkg/catalog"
 )
 
 const (
