@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Raccoon-CI/raccoonci/internal/scan"
+	"github.com/Raccoon-CI/runner/pkg/scan"
 )
 
 // A rust-installer component: install.sh copies the component's files under --prefix.

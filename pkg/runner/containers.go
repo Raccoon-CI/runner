@@ -13,9 +13,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Raccoon-CI/raccoonci/internal/docker"
-	"github.com/Raccoon-CI/raccoonci/pkg/expr"
-	"github.com/Raccoon-CI/raccoonci/pkg/value"
+	"github.com/Raccoon-CI/runner/internal/docker"
+	"github.com/Raccoon-CI/lib/pkg/expr"
+	"github.com/Raccoon-CI/lib/pkg/value"
 )
 
 // Container jobs and service containers.

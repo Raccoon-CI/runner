@@ -14,7 +14,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/Raccoon-CI/raccoonci/internal/scan"
+	"github.com/Raccoon-CI/runner/pkg/scan"
 )
 
 // pythonArchive builds a python-build-standalone install_only archive.

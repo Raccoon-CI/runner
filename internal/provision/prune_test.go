@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Raccoon-CI/raccoonci/internal/scan"
+	"github.com/Raccoon-CI/runner/pkg/scan"
 )
 
 // cached makes a complete tool cache entry of size bytes, last used at used.

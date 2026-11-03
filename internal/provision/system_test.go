@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Raccoon-CI/raccoonci/internal/scan"
+	"github.com/Raccoon-CI/runner/pkg/scan"
 )
 
 // fakeMachine lays out a toolchain the way a template ships it: the real

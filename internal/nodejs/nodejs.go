@@ -9,7 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/Raccoon-CI/raccoonci/internal/mirror"
+	"github.com/Raccoon-CI/runner/internal/mirror"
 	"io"
 	"net/http"
 	"os"
@@ -20,8 +20,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Raccoon-CI/raccoonci/pkg/archive"
-	"github.com/Raccoon-CI/raccoonci/pkg/catalog"
+	"github.com/Raccoon-CI/lib/pkg/archive"
+	"github.com/Raccoon-CI/lib/pkg/catalog"
 )
 
 const (

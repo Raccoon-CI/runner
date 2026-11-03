@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Raccoon-CI/raccoonci/internal/actions"
-	"github.com/Raccoon-CI/raccoonci/internal/docker"
-	"github.com/Raccoon-CI/raccoonci/pkg/expr"
-	"github.com/Raccoon-CI/raccoonci/pkg/value"
+	"github.com/Raccoon-CI/runner/pkg/actions"
+	"github.com/Raccoon-CI/runner/internal/docker"
+	"github.com/Raccoon-CI/lib/pkg/expr"
+	"github.com/Raccoon-CI/lib/pkg/value"
 )
 
 // Docker actions (`uses: docker://image` and `runs.using: docker`) run in a

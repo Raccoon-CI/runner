@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Raccoon-CI/raccoonci/internal/mirror"
+	"github.com/Raccoon-CI/runner/internal/mirror"
 	"net/http"
 	"net/url"
 	"os"
@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Raccoon-CI/raccoonci/pkg/archive"
+	"github.com/Raccoon-CI/lib/pkg/archive"
 )
 
 // Ref is a `uses: owner/repo[/path]@ref` reference to an action on GitHub.

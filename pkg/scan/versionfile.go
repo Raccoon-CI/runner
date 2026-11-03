@@ -9,7 +9,7 @@ import (
 	"path"
 	"strings"
 
-	"github.com/Raccoon-CI/raccoonci/pkg/catalog"
+	"github.com/Raccoon-CI/lib/pkg/catalog"
 )
 
 // readVersionFile extracts the toolchain version a version file pins, the

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Raccoon-CI/raccoonci/internal/nodejs"
-	"github.com/Raccoon-CI/raccoonci/internal/semver"
+	"github.com/Raccoon-CI/runner/internal/nodejs"
+	"github.com/Raccoon-CI/runner/internal/semver"
 )
 
 // nodeInstaller installs Node.js from nodejs.org.

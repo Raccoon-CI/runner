@@ -12,7 +12,7 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/Raccoon-CI/raccoonci/pkg/archive"
+	"github.com/Raccoon-CI/lib/pkg/archive"
 )
 
 // DefaultRustURL is where the Rust project publishes its releases.
