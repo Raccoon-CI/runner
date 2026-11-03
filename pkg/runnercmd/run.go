@@ -242,7 +242,7 @@ func Run(args []string, cat *catalog.Catalog, ext *RunExt) (ok bool, err error) 
 			return false, fmt.Errorf("%s is outside its repository %s", path, repo)
 		}
 		ev := evFlags.Event(repo, *event)
-		if unaffectedFn, err = cliutil.Unaffected(w, repoDir.FS(), filepath.ToSlash(wfRel), ev.Files); err != nil {
+		if unaffectedFn, err = cliutil.Unaffected(w, repoDir.FS(), filepath.ToSlash(wfRel), ev.Files, cat); err != nil {
 			return false, err
 		}
 	}

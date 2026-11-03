@@ -15,7 +15,7 @@ dist/raccoonci-runner run .github/workflows/ci.yml
 
 ## 与其他仓库的关系
 
-`lib`（共用库，必需）<- 本仓库 <- `cli`（`raccoonci` 命令）；`backend`（服务端）只依赖 lib。本仓库依赖 lib `v0.1.0`，自己也打了 `v0.1.0` 标签。详见 CLAUDE.md 与 TODO.md。
+`lib`（共用库，必需）<- 本仓库 <- `cli`（`raccoonci` 命令）；`backend`（服务端）只依赖 lib。本仓库依赖 lib `v0.4.0`，最新标签是 `v0.2.0`。详见 CLAUDE.md 与 TODO.md。
 
 ## 许可证
 

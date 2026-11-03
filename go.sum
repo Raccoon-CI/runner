@@ -1,5 +1,5 @@
-github.com/Raccoon-CI/lib v0.1.0 h1:4B+ACMh2Sd8qBHRwI6Cg1tjiuwYJyIKD8Cq+rEP+Lzo=
-github.com/Raccoon-CI/lib v0.1.0/go.mod h1:1UDYH5hFJSmu43gg2iKvHprAGIk4z/D6drE30uM+hPU=
+github.com/Raccoon-CI/lib v0.4.0 h1:FL+lpTXbYe6cz3rHSarkd6+jrLvNPUbb1Rvb5GLjpE0=
+github.com/Raccoon-CI/lib v0.4.0/go.mod h1:1UDYH5hFJSmu43gg2iKvHprAGIk4z/D6drE30uM+hPU=
 github.com/aws/aws-sdk-go-v2 v1.47.5 h1:5yA+A+BiXbDq1ZLbYwPViwhEGDMdR0MEhL8Jh2LnLS4=
 github.com/aws/aws-sdk-go-v2 v1.47.5/go.mod h1:iNIkogrRvFwm+1OQIUOP2lPBtlXZboOIUWiCa+pHEMw=
 github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.7.25 h1:MW0Iql1SOTgQPj8mCxrU/eH/K/AIDWi08ItOsXaWRLU=

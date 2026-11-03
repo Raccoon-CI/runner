@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/Raccoon-CI/lib/pkg/affected"
+	"github.com/Raccoon-CI/lib/pkg/catalog"
 	"github.com/Raccoon-CI/lib/pkg/trigger"
 	"github.com/Raccoon-CI/lib/pkg/value"
 	"github.com/Raccoon-CI/lib/pkg/workflow"
@@ -80,13 +81,15 @@ func RepoRoot(workflowPath string) (string, bool) {
 }
 
 // Unaffected builds engine.Options.Unaffected from the changed files: a job is
-// left out when none of them concerns it and leaving it out is safe.
-func Unaffected(w *workflow.Workflow, repo fs.FS, wfPath string, files []string) (func(*workflow.Job) (string, bool), error) {
+// left out when none of them concerns it and leaving it out is safe. The
+// directories package discovery skips are those of the catalog in use, so a
+// catalog laid over the built-in one (-catalog, a feed) applies here too.
+func Unaffected(w *workflow.Workflow, repo fs.FS, wfPath string, files []string, cat *catalog.Catalog) (func(*workflow.Job) (string, bool), error) {
 	cfg, err := affected.LoadConfig(repo)
 	if err != nil {
 		return nil, err
 	}
-	decisions := affected.Decide(affected.Input{Workflow: w, WorkflowPath: wfPath, Files: files, Repo: repo, Config: cfg})
+	decisions := affected.Decide(affected.Input{Workflow: w, WorkflowPath: wfPath, Files: files, Repo: repo, Config: cfg, SkipDirs: affected.SkipDirs(cat)})
 	return func(j *workflow.Job) (string, bool) {
 		d, ok := decisions[j.ID]
 		if !ok || d.Affected {

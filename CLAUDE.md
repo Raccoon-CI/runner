@@ -42,7 +42,7 @@ Use `GOFLAGS=-p=1` (memory). The `pkg/runnercmd` tests build `cmd/raccoonci-runn
 
 ## Developing across the repositories
 
-go.mod requires the published `lib v0.1.0`, so `go build ./...` and `go test ./...` work on their own, and so does CI. To try a change to lib together with this repository, put the checkouts side by side and add a `go.work` next to them with a `use` line for each directory (do not commit it). This repository's own tag is `v0.1.0`; the `cli` requires it.
+go.mod requires the published `lib v0.4.0`, so `go build ./...` and `go test ./...` work on their own, and so does CI. To try a change to lib together with this repository, put the checkouts side by side and add a `go.work` next to them with a `use` line for each directory (do not commit it). This repository's latest tag is `v0.2.0` (`cliutil.Unaffected` now takes the catalog in use, a breaking change of a public package); the `cli` requires it.
 
 ## Known issues
 

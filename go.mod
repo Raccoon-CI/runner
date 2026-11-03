@@ -18,7 +18,7 @@ require (
 )
 
 require (
-	github.com/Raccoon-CI/lib v0.1.0
+	github.com/Raccoon-CI/lib v0.4.0
 	gopkg.in/yaml.v3 v3.0.1
 	mvdan.cc/sh/v3 v3.14.1
 )

@@ -115,7 +115,7 @@ Node.js、Go、Python、Java、Rust、apt 包已经通了（见 B.1 和下面的
 
 ## B.6 按需执行（Raccoon CI 自己的扩展，不是 GitHub 的语义）
 
-灵感来自 Vercel / Turborepo：改了后端就不跑前端的 job。`internal/affected` + `engine.Options.Unaffected`。这是自有 trigger 才能做的加速；A 路径下怎么用见 A.4 的"跑了但实际没跑"。
+灵感来自 Vercel / Turborepo：改了后端就不跑前端的 job。lib 的 `pkg/affected` + `engine.Options.Unaffected`（`cliutil.Unaffected` 把当前 catalog 的 `skip-dirs` 传过去，所以 `-catalog` 叠加对 `run -affected` 也生效）。这是自有 trigger 才能做的加速；A 路径下怎么用见 A.4 的"跑了但实际没跑"。
 
 - ✅ job 级（2026-10-29）：`raccoonci affected [-event E -file F -before REV ...] workflow.yml` 说明每个 job 为什么跑、为什么不跑；`raccoonci run -affected` 把不受影响的 job 直接略过（打印 "not run: …"，最后汇总里标 `-`），依赖它的 job 看到的 `needs.<id>.result` 是 `success`。判断依据保守：只有**能确定** job 的输入范围，并且变更文件都落在范围外，才会略过；其余一律照跑。范围来源：①job 的 `defaults.run.working-directory` 或每个 `run:` 步骤自己的 `working-directory`，加上 `uses: ./本地action` 的目录（任何一个 `run:` 在仓库根目录跑、目录只在运行时才知道，都当成"整个仓库"）；②包依赖图（下一条）；③可选的 `.raccoonci/affected.yml`（`ignore` 不影响任何目录型 job 的文件、`global` 影响所有 job 的文件、`jobs.<id>` 显式给出一个 job 的依赖，用 GitHub 的 glob；放在 workflow 文件之外，因为 GitHub 不认识 workflow 里的陌生键）。变更文件不属于任何包或 job 目录、又不在 `ignore`/默认忽略（`**.md`、LICENSE、.gitignore、.editorconfig）里 → 影响所有目录型 job；workflow 文件本身、`.github/actions/**`、配置文件变了 → 全部要跑；变更文件未知 → 全部要跑。**有输出（`outputs:`）或上传 artifact 的 job 永远不略过**（略过会让下游缺东西）。
 - ✅ 依赖图级（2026-10-29）：工作区包的发现和依赖——Go（`go.work` 的 `use`，模块之间的 `require` 和指向本地目录的 `replace`）、npm/yarn（`package.json` 的 `workspaces`）、pnpm（`pnpm-workspace.yaml`，支持 `!` 排除）、Cargo（`[workspace] members/exclude`，`path` 依赖，以及与成员同名的依赖——按"同名即本地"保守处理，因为常常靠 `[patch]` 指过去）。job 的范围 = 它工作目录里的包 + 这些包依赖的包（传递）；所以改了底层库，用它的上层 job 会被判为受影响，不相干的包不会。在真实仓库上看过图：vite（287 个 pnpm 工作区包，含 playground 和测试夹具）、tokio（10 个 crate，dev-dependencies 形成环，处理没问题）。
