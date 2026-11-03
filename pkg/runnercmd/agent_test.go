@@ -34,15 +34,9 @@ func (l *lockedBuf) String() string { l.mu.Lock(); defer l.mu.Unlock(); return l
 
 // One job instance over the wire, the way `run -on instabox` sends it: the
 // controller hands a resolved instance (matrix value, needs output) to
-// `raccoonci agent`, which runs `run-instance`; events and the result come
+// `raccoonci-runner agent`, which runs `run-instance`; events and the result come
 // back through wireReader, with outputs and the order of keys intact.
-func TestRunInstanceOverTheWire(t *testing.T) { runInstanceOverTheWire(t, "../../cmd/raccoonci") }
-
-// The machine side is offered by two binaries that share this package's code:
-// `raccoonci` and `raccoonci-runner`. They must do the same.
-func TestTheRunnerBinaryRunsAnInstanceTheSameWay(t *testing.T) {
-	runInstanceOverTheWire(t, "../../cmd/raccoonci-runner")
-}
+func TestRunInstanceOverTheWire(t *testing.T) { runInstanceOverTheWire(t, "../../cmd/raccoonci-runner") }
 
 func runInstanceOverTheWire(t *testing.T, pkg string) {
 	if testing.Short() {
@@ -148,8 +142,8 @@ func TestRunInstanceRefusesAnAssignmentNewerThanItUnderstands(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the binary")
 	}
-	bin := filepath.Join(t.TempDir(), "raccoonci")
-	if out, err := exec.Command("go", "build", "-o", bin, "../../cmd/raccoonci").CombinedOutput(); err != nil {
+	bin := filepath.Join(t.TempDir(), "raccoonci-runner")
+	if out, err := exec.Command("go", "build", "-o", bin, "../../cmd/raccoonci-runner").CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 	spec, _ := json.Marshal(wire.InstanceSpec{Protocol: wire.Version + 1, Workflow: ".github/workflows/w.yml", Job: "test",
@@ -164,15 +158,15 @@ func TestRunInstanceRefusesAnAssignmentNewerThanItUnderstands(t *testing.T) {
 	}
 }
 
-// The real binary, as `raccoonci agent`, runs a workflow a controller sends:
+// The real binary, as `raccoonci-runner agent`, runs a workflow a controller sends:
 // source tree over the wire, log streamed back, failing step reported as an
 // exit code. The workflow only uses run: steps, so no network is needed.
 func TestAgentRunsAWorkflowFromAController(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds the binary")
 	}
-	bin := filepath.Join(t.TempDir(), "raccoonci")
-	if out, err := exec.Command("go", "build", "-o", bin, "../../cmd/raccoonci").CombinedOutput(); err != nil {
+	bin := filepath.Join(t.TempDir(), "raccoonci-runner")
+	if out, err := exec.Command("go", "build", "-o", bin, "../../cmd/raccoonci-runner").CombinedOutput(); err != nil {
 		t.Fatalf("go build: %v\n%s", err, out)
 	}
 
