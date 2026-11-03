@@ -80,6 +80,7 @@ func RunInstance(args []string, cat *catalog.Catalog) error {
 	if job == nil {
 		return fmt.Errorf("%s has no job %q", spec.Workflow, spec.Job)
 	}
+	cat = withSentCatalog(cat, []byte(spec.Catalog), os.Stderr)
 	rt, err := NewRunEnv(cat, spec.Install)
 	if err != nil {
 		return err
@@ -140,4 +141,19 @@ func RunInstance(args []string, cat *catalog.Catalog) error {
 	}
 	enc.Write(wire.Line{Result: &wire.Result{Conclusion: res.Conclusion, Outputs: outputs, DurationMS: time.Since(began).Milliseconds(), Summary: res.Summary}})
 	return nil
+}
+
+// withSentCatalog lays the catalog feed the controller sent over the built-in
+// catalog. Overlay checks it; a bad one only costs that: the built-in catalog
+// is used and the warning says so. Nothing sent is the built-in catalog.
+func withSentCatalog(cat *catalog.Catalog, sent []byte, warn io.Writer) *catalog.Catalog {
+	if len(sent) == 0 {
+		return cat
+	}
+	merged, err := cat.Overlay(sent)
+	if err != nil {
+		fmt.Fprintf(warn, "raccoonci: the catalog sent with the job is unusable (%v); using the built-in catalog\n", err)
+		return cat
+	}
+	return merged
 }
