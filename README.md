@@ -15,7 +15,7 @@ dist/raccoonci-runner run .github/workflows/ci.yml
 
 ## Other repositories
 
-`lib` (shared library, required) <- this repository <- `cli` (the `raccoonci` command); `backend` (server) depends on lib only. Until lib `v0.1.0` (then runner `v0.1.0`) is tagged, the repository builds only inside the shared `go.work`, and its own CI fails. See CLAUDE.md and TODO.md.
+`lib` (shared library, required) <- this repository <- `cli` (the `raccoonci` command); `backend` (server) depends on lib only. It requires lib `v0.1.0`; this repository is tagged `v0.1.0` too. See CLAUDE.md and TODO.md.
 
 ## Licence
 

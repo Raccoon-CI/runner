@@ -7,7 +7,7 @@
 ## 拆分后的遗留（本仓库）
 
 - ⬜ **runner 快照仍然安装 `raccoonci`，需要改装 `raccoonci-runner`。** `runner-snapshot`（`pkg/runnercmd/runnersnap.go`）和 lib 里的 `instabox.Client.BuildRunnerSnapshot` 把一个静态二进制装成机器上的 `raccoonci` 并起 agent 服务；拆分后机器侧的二进制是 `raccoonci-runner`（`make runner-binary` 现在产出 `dist/raccoonci-runner-linux-amd64`）。要改：安装路径与服务的 `ExecStart`、帮助文字、`-binary` 说明，以及 cli 里 `run -on instabox` 对快照里二进制名的假设；改完要重建快照并实测。**拆分时没动，行为不变。**
-- ⬜ 各 `pkg/*` 的导出名对外不稳定（0.x），lib/runner 打 v0.1.0 标签后再收紧；标签打出后在本仓库跑一次 `go mod tidy`。
+- ⬜ 各 `pkg/*` 的导出名对外不稳定（0.x），lib/runner 已打 v0.1.0 标签（`go mod tidy` 已跑过），收紧要等真实的外部使用者出现。
 - ⬜ 原 `runner-images update` 命令（刷新内嵌的 GitHub 镜像快照）在 cli 仓库，本仓库的 Makefile 不再有 `runner-images` 目标。
 
 # B. 作为独立 CI/CD 平台（`raccoonci run`，自有引擎）

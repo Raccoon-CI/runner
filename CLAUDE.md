@@ -40,9 +40,9 @@ go test ./pkg/runnercmd -run TestName -v
 
 Use `GOFLAGS=-p=1` (memory). The `pkg/runnercmd` tests build `cmd/raccoonci-runner` themselves.
 
-## Developing before the tags exist
+## Developing across the repositories
 
-`../go.work` (the directory above the four repositories) uses `lib`, `runner`, `cli`, `backend` and replaces `lib v0.1.0` and `raccoonci-runner v0.1.0` with the local directories, so build and test work offline. go.mod requires `lib v0.1.0`, which is not tagged yet: do not run `go mod tidy` until the tags exist (then run it once; unused requirements left over from the split are harmless meanwhile). CI fails until lib v0.1.0 is tagged.
+go.mod requires the published `lib v0.1.0`, so `go build ./...` and `go test ./...` work on their own, and so does CI. To try a change to lib together with this repository, put the checkouts side by side and add a `go.work` next to them with a `use` line for each directory (do not commit it). This repository's own tag is `v0.1.0`; the `cli` requires it.
 
 ## Known issues
 
