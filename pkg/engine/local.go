@@ -6,11 +6,11 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/Raccoon-CI/lib/pkg/platform"
+	"github.com/Raccoon-CI/lib/pkg/runnerimages"
 	"github.com/Raccoon-CI/runner/internal/missing"
 	"github.com/Raccoon-CI/runner/pkg/runner"
 	"github.com/Raccoon-CI/runner/pkg/scan"
-	"github.com/Raccoon-CI/lib/pkg/platform"
-	"github.com/Raccoon-CI/lib/pkg/runnerimages"
 )
 
 // imageFor is the runner image the instance's runs-on picks, if any.

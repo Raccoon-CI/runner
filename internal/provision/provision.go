@@ -20,9 +20,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Raccoon-CI/runner/pkg/scan"
-	"github.com/Raccoon-CI/runner/internal/semver"
 	"github.com/Raccoon-CI/lib/pkg/catalog"
+	"github.com/Raccoon-CI/runner/internal/semver"
+	"github.com/Raccoon-CI/runner/pkg/scan"
 )
 
 // Installer fetches one toolchain from where it is published. Which

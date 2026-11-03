@@ -13,16 +13,16 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Raccoon-CI/runner/pkg/actions"
-	"github.com/Raccoon-CI/runner/pkg/cliflag"
-	"github.com/Raccoon-CI/runner/pkg/engine"
-	"github.com/Raccoon-CI/runner/internal/local"
-	"github.com/Raccoon-CI/runner/pkg/runner"
 	"github.com/Raccoon-CI/lib/pkg/catalog"
 	"github.com/Raccoon-CI/lib/pkg/runnerimages"
 	"github.com/Raccoon-CI/lib/pkg/value"
 	"github.com/Raccoon-CI/lib/pkg/wire"
 	"github.com/Raccoon-CI/lib/pkg/workflow"
+	"github.com/Raccoon-CI/runner/internal/local"
+	"github.com/Raccoon-CI/runner/pkg/actions"
+	"github.com/Raccoon-CI/runner/pkg/cliflag"
+	"github.com/Raccoon-CI/runner/pkg/engine"
+	"github.com/Raccoon-CI/runner/pkg/runner"
 )
 
 // RunInstance implements `raccoonci run-instance`, which the agent starts in

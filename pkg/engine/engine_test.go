@@ -19,11 +19,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Raccoon-CI/runner/internal/provision"
-	"github.com/Raccoon-CI/runner/pkg/runner"
 	"github.com/Raccoon-CI/lib/pkg/runnerimages"
 	"github.com/Raccoon-CI/lib/pkg/value"
 	"github.com/Raccoon-CI/lib/pkg/workflow"
+	"github.com/Raccoon-CI/runner/internal/provision"
+	"github.com/Raccoon-CI/runner/pkg/runner"
 )
 
 type log struct {

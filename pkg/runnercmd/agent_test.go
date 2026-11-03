@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Raccoon-CI/runner/pkg/runner"
 	"github.com/Raccoon-CI/lib/pkg/dispatch"
 	"github.com/Raccoon-CI/lib/pkg/wire"
+	"github.com/Raccoon-CI/runner/pkg/runner"
 )
 
 type lockedBuf struct {
@@ -36,7 +36,9 @@ func (l *lockedBuf) String() string { l.mu.Lock(); defer l.mu.Unlock(); return l
 // controller hands a resolved instance (matrix value, needs output) to
 // `raccoonci-runner agent`, which runs `run-instance`; events and the result come
 // back through wireReader, with outputs and the order of keys intact.
-func TestRunInstanceOverTheWire(t *testing.T) { runInstanceOverTheWire(t, "../../cmd/raccoonci-runner") }
+func TestRunInstanceOverTheWire(t *testing.T) {
+	runInstanceOverTheWire(t, "../../cmd/raccoonci-runner")
+}
 
 func runInstanceOverTheWire(t *testing.T, pkg string) {
 	if testing.Short() {

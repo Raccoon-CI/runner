@@ -15,10 +15,10 @@ import (
 	"strings"
 
 	"github.com/Raccoon-CI/lib/pkg/affected"
-	"github.com/Raccoon-CI/runner/pkg/cliflag"
 	"github.com/Raccoon-CI/lib/pkg/trigger"
 	"github.com/Raccoon-CI/lib/pkg/value"
 	"github.com/Raccoon-CI/lib/pkg/workflow"
+	"github.com/Raccoon-CI/runner/pkg/cliflag"
 )
 
 func AbsPath(p string) string {

@@ -12,9 +12,9 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/Raccoon-CI/lib/pkg/archive"
 	"github.com/Raccoon-CI/runner/internal/nodejs"
 	"github.com/Raccoon-CI/runner/internal/semver"
-	"github.com/Raccoon-CI/lib/pkg/archive"
 )
 
 // DefaultGoURL is where Go publishes its releases.

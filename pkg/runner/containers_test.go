@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Raccoon-CI/lib/pkg/value"
 	"github.com/Raccoon-CI/runner/internal/docker"
 	"github.com/Raccoon-CI/runner/internal/nodejs"
-	"github.com/Raccoon-CI/lib/pkg/value"
 )
 
 func TestParseSpec(t *testing.T) {

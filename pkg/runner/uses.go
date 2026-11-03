@@ -7,10 +7,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Raccoon-CI/runner/pkg/actions"
 	"github.com/Raccoon-CI/lib/pkg/expr"
 	"github.com/Raccoon-CI/lib/pkg/value"
 	"github.com/Raccoon-CI/lib/pkg/workflow"
+	"github.com/Raccoon-CI/runner/pkg/actions"
 )
 
 func isRemote(uses string) bool {

@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Raccoon-CI/runner/internal/docker"
 	"github.com/Raccoon-CI/lib/pkg/value"
 	"github.com/Raccoon-CI/lib/pkg/workflow"
+	"github.com/Raccoon-CI/runner/internal/docker"
 )
 
 type recorder struct {

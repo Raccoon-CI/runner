@@ -14,8 +14,8 @@ import (
 
 	"encoding/json"
 
-	"github.com/Raccoon-CI/runner/internal/semver"
 	"github.com/Raccoon-CI/lib/pkg/archive"
+	"github.com/Raccoon-CI/runner/internal/semver"
 )
 
 // Where python-build-standalone publishes. Its latest-release.json names the

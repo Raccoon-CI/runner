@@ -13,10 +13,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/Raccoon-CI/runner/internal/local"
 	"github.com/Raccoon-CI/lib/pkg/artifact"
 	"github.com/Raccoon-CI/lib/pkg/blob"
 	"github.com/Raccoon-CI/lib/pkg/cache"
+	"github.com/Raccoon-CI/runner/internal/local"
 )
 
 // Services are the runtime services steps call (artifacts and the cache).

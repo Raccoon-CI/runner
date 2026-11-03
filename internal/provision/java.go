@@ -12,8 +12,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Raccoon-CI/runner/internal/semver"
 	"github.com/Raccoon-CI/lib/pkg/archive"
+	"github.com/Raccoon-CI/runner/internal/semver"
 )
 
 // DefaultAdoptiumURL is the API of Eclipse Adoptium, which publishes Temurin.

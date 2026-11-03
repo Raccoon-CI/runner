@@ -22,12 +22,12 @@ import (
 
 	"mvdan.cc/sh/v3/syntax"
 
-	"github.com/Raccoon-CI/runner/pkg/actions"
 	"github.com/Raccoon-CI/lib/pkg/catalog"
 	"github.com/Raccoon-CI/lib/pkg/expr"
 	"github.com/Raccoon-CI/lib/pkg/runnerimages"
 	"github.com/Raccoon-CI/lib/pkg/value"
 	"github.com/Raccoon-CI/lib/pkg/workflow"
+	"github.com/Raccoon-CI/runner/pkg/actions"
 )
 
 type Kind = catalog.Kind
