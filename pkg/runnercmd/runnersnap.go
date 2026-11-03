@@ -23,7 +23,7 @@ var nameUnsafe = regexp.MustCompile(`[^a-z0-9]+`)
 // instabox.Client.BuildRunnerSnapshot) and prints its id.
 func Snapshot(args []string) error {
 	fs := flag.NewFlagSet("runner-snapshot", flag.ContinueOnError)
-	binary := fs.String("binary", "", "the statically linked raccoonci to install (make runner-binary builds dist/raccoonci-linux-amd64); default: this executable")
+	binary := fs.String("binary", "", "the statically linked raccoonci-runner to install (make runner-binary builds dist/raccoonci-runner-linux-amd64); default: this executable")
 	name := fs.String("name", "", "the snapshot's name (default raccoonci-runner-<version>)")
 	template := fs.String("template", "universal", "the template to start from")
 	replace := fs.String("replace", "", "delete this snapshot id once the new one is ready")
